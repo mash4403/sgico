@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #0a0e1a;
+  color: #e2e8f0;
+  margin: 0;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+/* Pulse animation for alerts */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.animate-pulse-dot { animation: pulse-dot 2s infinite; }
+
+/* Form inputs */
+input, select, textarea {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #e2e8f0;
+  font-size: 14px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: #3b82f6;
+}
+select option { background: #1f2937; color: #e2e8f0; }
