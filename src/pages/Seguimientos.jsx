@@ -38,7 +38,7 @@ export default function Seguimientos() {
     setLoading(true)
     
     // Marcar vencidos automáticamente
-    await supabase.rpc('marcar_seguimientos_vencidos').catch(() => {})
+    try { await supabase.rpc('marcar_seguimientos_vencidos') } catch(e) {}
 
     let query = supabase.from('seguimientos')
       .select(`
