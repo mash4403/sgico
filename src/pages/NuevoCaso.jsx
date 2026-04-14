@@ -477,7 +477,15 @@ export default function NuevoCaso() {
           Anterior
         </button>
         {step < STEPS.length - 1 ? (
-          <button onClick={() => setStep(step + 1)}
+          <button onClick={() => {
+            if (step === 0) {
+              if (!paciente.documento.trim() || !paciente.nombre.trim()) {
+                toast.error('Documento y nombre del paciente son requeridos')
+                return
+              }
+            }
+            setStep(step + 1)
+          }}
             className="px-6 py-2 rounded-lg text-sm font-medium text-white transition-all"
             style={{ background: 'linear-gradient(135deg, #3b82f6, #06b6d4)' }}>
             Siguiente

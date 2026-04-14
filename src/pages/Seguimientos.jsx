@@ -69,7 +69,7 @@ export default function Seguimientos() {
 
   const fetchData = async () => {
     setLoading(true)
-    try { await supabase.rpc('marcar_seguimientos_vencidos') } catch(e) {}
+    try { await supabase.rpc('marcar_seguimientos_vencidos') } catch(e) { console.warn('No se pudo marcar vencidos:', e.message) }
 
     let query = supabase.from('seguimientos')
       .select(`
@@ -170,8 +170,8 @@ export default function Seguimientos() {
           .eq('estado', 'activa')
       }
 
-      toast.success(seg.tipo === 'post_comite' 
-        ? 'Evaluación post-comité registrada' 
+      toast.success(seg.tipo === 'post_comite'
+        ? 'Evaluación post-comité registrada'
         : 'Evaluación trimestral registrada')
       setEditando(null)
       fetchData()
@@ -179,6 +179,9 @@ export default function Seguimientos() {
       toast.error(`Error: ${err.message}`)
     }
   }
+
+  const updateField = (segId, field, value) =>
+    setFormData(prev => ({...prev, [segId]: {...prev[segId], [field]: value}}))
 
   const pendientes = seguimientos.filter(s => s.estado === 'pendiente').length
   const vencidos = seguimientos.filter(s => s.estado === 'vencido').length
@@ -221,8 +224,8 @@ export default function Seguimientos() {
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              tab === t.key 
-                ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' 
+              tab === t.key
+                ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
                 : 'text-gray-500 border border-white/5 hover:border-white/10'
             }`}>{t.label}</button>
         ))}
@@ -245,7 +248,7 @@ export default function Seguimientos() {
               const pac = s.casos_comite?.pacientes
               const proto = s.casos_comite?.protocolos
               const isExpanded = editando === s.id
-              const diasVencido = s.estado === 'vencido' 
+              const diasVencido = s.estado === 'vencido'
                 ? Math.floor((new Date() - new Date(s.fecha_programada)) / 86400000) : 0
               const tColor = tipoColor[s.tipo] || '#64748b'
 
@@ -271,7 +274,7 @@ export default function Seguimientos() {
                         <span className="text-xs text-gray-500 font-mono">{pac?.documento}</span>
                       </div>
                       <div className="text-xs text-gray-500">
-                        {s.casos_comite?.molecula_aprobada || 'Sin molécula'} 
+                        {s.casos_comite?.molecula_aprobada || 'Sin molécula'}
                         {proto ? ` · ${proto.nombre}` : ''}
                       </div>
                     </div>
@@ -303,7 +306,7 @@ export default function Seguimientos() {
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">¿Decisión ejecutada?</label>
                           <select value={formData[s.id]?.decision_ejecutada ?? true}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], decision_ejecutada: e.target.value === 'true'}})}>
+                            onChange={e => updateField(s.id, 'decision_ejecutada', e.target.value === 'true')}>
                             <option value="true">Sí</option>
                             <option value="false">No</option>
                           </select>
@@ -311,24 +314,24 @@ export default function Seguimientos() {
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Fecha primera consulta</label>
                           <input type="date" value={formData[s.id]?.fecha_primera_consulta || ''}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], fecha_primera_consulta: e.target.value}})} />
+                            onChange={e => updateField(s.id, 'fecha_primera_consulta', e.target.value)} />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Fecha inicio tratamiento</label>
                           <input type="date" value={formData[s.id]?.fecha_inicio_tratamiento || ''}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], fecha_inicio_tratamiento: e.target.value}})} />
+                            onChange={e => updateField(s.id, 'fecha_inicio_tratamiento', e.target.value)} />
                         </div>
                         {formData[s.id]?.decision_ejecutada === false && (
                           <div className="col-span-3">
                             <label className="block text-xs text-gray-400 mb-1">Motivo de no ejecución</label>
                             <input value={formData[s.id]?.motivo_no_ejecucion || ''} placeholder="Barrera administrativa, clínica, del paciente..."
-                              onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], motivo_no_ejecucion: e.target.value}})} />
+                              onChange={e => updateField(s.id, 'motivo_no_ejecucion', e.target.value)} />
                           </div>
                         )}
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Gestor</label>
                           <select value={formData[s.id]?.gestor_id || ''}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], gestor_id: e.target.value}})}>
+                            onChange={e => updateField(s.id, 'gestor_id', e.target.value)}>
                             <option value="">Seleccionar...</option>
                             {gestores.map(g => <option key={g.id} value={g.id}>{g.nombre}</option>)}
                           </select>
@@ -336,7 +339,7 @@ export default function Seguimientos() {
                         <div className="col-span-2">
                           <label className="block text-xs text-gray-400 mb-1">Observaciones</label>
                           <input value={formData[s.id]?.observaciones || ''} placeholder="Notas..."
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], observaciones: e.target.value}})} />
+                            onChange={e => updateField(s.id, 'observaciones', e.target.value)} />
                         </div>
                         <div className="col-span-3 flex gap-2 mt-2">
                           <button onClick={() => guardar(s.id)}
@@ -367,7 +370,7 @@ export default function Seguimientos() {
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Estado clínico</label>
                           <select value={formData[s.id]?.estado_clinico || ''}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], estado_clinico: e.target.value}})}>
+                            onChange={e => updateField(s.id, 'estado_clinico', e.target.value)}>
                             <option value="">Seleccionar...</option>
                             {ESTADOS_CLINICOS.map(ec => <option key={ec.value} value={ec.value}>{ec.label}</option>)}
                           </select>
@@ -375,7 +378,7 @@ export default function Seguimientos() {
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Respuesta (RECIST)</label>
                           <select value={formData[s.id]?.respuesta_recist || ''}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], respuesta_recist: e.target.value}})}>
+                            onChange={e => updateField(s.id, 'respuesta_recist', e.target.value)}>
                             <option value="">Seleccionar...</option>
                             {RESPUESTA_RECIST.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                           </select>
@@ -383,7 +386,7 @@ export default function Seguimientos() {
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Estado vital</label>
                           <select value={formData[s.id]?.estado_vital || 'vivo'}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], estado_vital: e.target.value}})}>
+                            onChange={e => updateField(s.id, 'estado_vital', e.target.value)}>
                             <option value="vivo">Vivo</option>
                             <option value="fallecido">Fallecido</option>
                             <option value="perdido">Perdido</option>
@@ -397,7 +400,7 @@ export default function Seguimientos() {
                         <div>
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input type="checkbox" checked={formData[s.id]?.pfs_alcanzado || false}
-                              onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], pfs_alcanzado: e.target.checked}})} />
+                              onChange={e => updateField(s.id, 'pfs_alcanzado', e.target.checked)} />
                             <span className="text-sm text-gray-300">¿Progresó? (PFS alcanzado)</span>
                           </label>
                         </div>
@@ -406,12 +409,12 @@ export default function Seguimientos() {
                             <div>
                               <label className="block text-xs text-gray-400 mb-1">Fecha progresión</label>
                               <input type="date" value={formData[s.id]?.fecha_progresion || ''}
-                                onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], fecha_progresion: e.target.value}})} />
+                                onChange={e => updateField(s.id, 'fecha_progresion', e.target.value)} />
                             </div>
                             <div>
                               <label className="block text-xs text-gray-400 mb-1">Sitio progresión</label>
                               <input value={formData[s.id]?.sitio_progresion || ''} placeholder="Hígado, SNC, hueso..."
-                                onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], sitio_progresion: e.target.value}})} />
+                                onChange={e => updateField(s.id, 'sitio_progresion', e.target.value)} />
                             </div>
                           </>
                         )}
@@ -425,12 +428,12 @@ export default function Seguimientos() {
                             <div>
                               <label className="block text-xs text-gray-400 mb-1">Fecha de muerte</label>
                               <input type="date" value={formData[s.id]?.fecha_muerte || ''}
-                                onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], fecha_muerte: e.target.value}})} />
+                                onChange={e => updateField(s.id, 'fecha_muerte', e.target.value)} />
                             </div>
                             <div>
                               <label className="block text-xs text-gray-400 mb-1">Causa de muerte</label>
                               <input value={formData[s.id]?.causa_muerte || ''} placeholder="Progresión, toxicidad, otra..."
-                                onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], causa_muerte: e.target.value}})} />
+                                onChange={e => updateField(s.id, 'causa_muerte', e.target.value)} />
                             </div>
                           </>
                         )}
@@ -442,7 +445,7 @@ export default function Seguimientos() {
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Grado máximo (0-5)</label>
                           <select value={formData[s.id]?.toxicidad_grado_max || ''}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], toxicidad_grado_max: e.target.value}})}>
+                            onChange={e => updateField(s.id, 'toxicidad_grado_max', e.target.value)}>
                             <option value="">Sin toxicidad</option>
                             {[1,2,3,4,5].map(n => <option key={n} value={n}>Grado {n}</option>)}
                           </select>
@@ -450,17 +453,17 @@ export default function Seguimientos() {
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Descripción toxicidad</label>
                           <input value={formData[s.id]?.toxicidad_descripcion || ''} placeholder="Astenia, rash, diarrea..."
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], toxicidad_descripcion: e.target.value}})} />
+                            onChange={e => updateField(s.id, 'toxicidad_descripcion', e.target.value)} />
                         </div>
                         <div className="flex gap-4 items-end">
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input type="checkbox" checked={formData[s.id]?.cambio_dosis || false}
-                              onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], cambio_dosis: e.target.checked}})} />
+                              onChange={e => updateField(s.id, 'cambio_dosis', e.target.checked)} />
                             <span className="text-xs text-gray-300">Cambio dosis</span>
                           </label>
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input type="checkbox" checked={formData[s.id]?.suspension_tratamiento || false}
-                              onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], suspension_tratamiento: e.target.checked}})} />
+                              onChange={e => updateField(s.id, 'suspension_tratamiento', e.target.checked)} />
                             <span className="text-xs text-gray-300">Suspensión</span>
                           </label>
                         </div>
@@ -473,25 +476,25 @@ export default function Seguimientos() {
                           <label className="block text-xs text-gray-400 mb-1">Costo este periodo (COP)</label>
                           <input type="number" value={formData[s.id]?.costo_periodo || ''}
                             placeholder="0"
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], costo_periodo: e.target.value}})} />
+                            onChange={e => updateField(s.id, 'costo_periodo', e.target.value)} />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Costo acumulado total (COP)</label>
                           <input type="number" value={formData[s.id]?.costo_acumulado_tratamiento || ''}
                             placeholder="0"
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], costo_acumulado_tratamiento: e.target.value}})} />
+                            onChange={e => updateField(s.id, 'costo_acumulado_tratamiento', e.target.value)} />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Fecha último contacto</label>
                           <input type="date" value={formData[s.id]?.fecha_ultimo_contacto || ''}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], fecha_ultimo_contacto: e.target.value}})} />
+                            onChange={e => updateField(s.id, 'fecha_ultimo_contacto', e.target.value)} />
                         </div>
 
                         {/* Observaciones + Guardar */}
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Gestor</label>
                           <select value={formData[s.id]?.gestor_id || ''}
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], gestor_id: e.target.value}})}>
+                            onChange={e => updateField(s.id, 'gestor_id', e.target.value)}>
                             <option value="">Seleccionar...</option>
                             {gestores.map(g => <option key={g.id} value={g.id}>{g.nombre}</option>)}
                           </select>
@@ -499,7 +502,7 @@ export default function Seguimientos() {
                         <div className="col-span-2">
                           <label className="block text-xs text-gray-400 mb-1">Observaciones</label>
                           <input value={formData[s.id]?.observaciones || ''} placeholder="Notas de la evaluación..."
-                            onChange={e => setFormData({...formData, [s.id]: {...formData[s.id], observaciones: e.target.value}})} />
+                            onChange={e => updateField(s.id, 'observaciones', e.target.value)} />
                         </div>
 
                         <div className="col-span-3 flex gap-2 mt-2">
