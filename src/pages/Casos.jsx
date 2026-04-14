@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { supabase, formatCOP, formatDate } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+import { formatCOP, formatDate } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import { Search, Filter, ChevronDown, ChevronUp, Check, X } from 'lucide-react'
 

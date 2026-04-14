@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { supabase, formatCOP } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+import { formatCOP } from '@/lib/utils'
 import { 
   AlertTriangle, Users, Clock, TrendingDown, Shield, 
   Activity, Heart, XCircle, RefreshCw 

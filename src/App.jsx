@@ -26,8 +26,11 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-400">Cargando SGICO...</div>
+      <div className="min-h-screen flex items-center justify-center bg-sgico-bg">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-sgico-accent border-t-transparent rounded-full animate-spin" />
+          <div className="text-gray-400 text-sm">Cargando SGICO...</div>
+        </div>
       </div>
     )
   }

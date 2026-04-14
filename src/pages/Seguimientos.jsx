@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { supabase, formatDate, formatCOP } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+import { formatDate, formatCOP } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import { ClipboardCheck, AlertTriangle, CheckCircle, Clock, XCircle, RefreshCw, TrendingDown, Activity } from 'lucide-react'
 
