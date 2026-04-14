@@ -1,8 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { 
-  LayoutDashboard, FilePlus, FolderOpen, ClipboardCheck, 
-  Bell, LogOut, Activity 
+import {
+  LayoutDashboard, FilePlus, FolderOpen, ClipboardCheck,
+  LogOut, Activity
 } from 'lucide-react'
 
 const navItems = [

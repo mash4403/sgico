@@ -129,7 +129,7 @@ export default function Dashboard() {
       </div>
 
       {/* Metric cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard label="Casos totales" value={s.total_casos || 0}
           sub={`${s.activos || 0} activos`} icon={Users} color="#3b82f6" />
         <MetricCard label="Oportunidad" value={`${(s.oportunidad_promedio || 0).toFixed(1)}d`}

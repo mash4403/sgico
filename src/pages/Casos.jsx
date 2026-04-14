@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { formatCOP, formatDate } from '@/lib/utils'
 import toast from 'react-hot-toast'
@@ -130,8 +130,8 @@ export default function Casos() {
             </thead>
             <tbody>
               {filteredCasos.map(c => (
-                <>
-                  <tr key={c.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer"
+                <React.Fragment key={c.id}>
+                  <tr className="border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer"
                     onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
                     <td className="px-4 py-3 text-sm text-gray-400 font-mono">{formatDate(c.fecha_solicitud)}</td>
                     <td className="px-4 py-3">
@@ -255,7 +255,7 @@ export default function Casos() {
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               ))}
             </tbody>
           </table>
