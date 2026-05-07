@@ -15,7 +15,7 @@ config()
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 )
 
 // ── Utilidades ──────────────────────────────────────────────
@@ -27,10 +27,13 @@ const err  = (msg) => console.error(`\x1b[31m✗\x1b[0m ${msg}`)
 function readSheet(wb, name) {
   const ws = wb.Sheets[name]
   if (!ws) { warn(`Hoja "${name}" no encontrada`); return [] }
-  // fila 0 = grupos, fila 1 = headers, fila 2 = notas → datos desde fila 3
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
-  const headers = rows[1]?.map(h => h?.toString().replace(' *','').trim()) || []
-  return rows.slice(3)
+  const headerIdx = rows.findIndex(r =>
+    r.filter(c => c !== null && c !== '').length > 2
+  )
+  if (headerIdx === -1) return []
+  const headers = rows[headerIdx].map(h => h?.toString().replace(' *','').trim())
+  return rows.slice(headerIdx + 2)
     .filter(r => r.some(c => c !== null && c !== ''))
     .map(r => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? null])))
 }
@@ -63,10 +66,10 @@ async function upsert(table, rows, onConflict) {
   if (!rows.length) { warn(`Sin datos para ${table}`); return [] }
   const { data, error } = await supabase
     .from(table)
-    .upsert(rows, { onConflict, ignoreDuplicates: false })
+    .insert(rows)
     .select()
   if (error) throw new Error(`${table}: ${error.message}`)
-  log(`${table}: ${data.length} registros insertados/actualizados`)
+  log(`${table}: ${data.length} registros insertados`)
   return data
 }
 

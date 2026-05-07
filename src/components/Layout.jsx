@@ -2,12 +2,13 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
   LayoutDashboard, FilePlus, FolderOpen, ClipboardCheck,
-  LogOut, Activity
+  ClipboardPlus, LogOut, Activity
 } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/nuevo', icon: FilePlus, label: 'Nuevo caso' },
+  { to: '/presentar', icon: ClipboardPlus, label: 'Presentar caso' },
   { to: '/casos', icon: FolderOpen, label: 'Casos' },
   { to: '/seguimientos', icon: ClipboardCheck, label: 'Seguimientos' },
 ]

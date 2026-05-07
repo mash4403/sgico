@@ -7,6 +7,8 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import NuevoCaso from './pages/NuevoCaso'
 import Casos from './pages/Casos'
+import CasoDetalle from './pages/CasoDetalle'
+import PresentacionComite from './pages/PresentacionComite'
 import Seguimientos from './pages/Seguimientos'
 
 export default function App() {
@@ -51,6 +53,8 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/nuevo" element={<NuevoCaso />} />
           <Route path="/casos" element={<Casos />} />
+          <Route path="/casos/:id" element={<CasoDetalle />} />
+          <Route path="/presentar" element={<PresentacionComite />} />
           <Route path="/seguimientos" element={<Seguimientos />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

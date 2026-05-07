@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { formatCOP, formatDate } from '@/lib/utils'
 import toast from 'react-hot-toast'
-import { Search, Filter, ChevronDown, ChevronUp, Check, X } from 'lucide-react'
+import { Search, Filter, ChevronDown, ChevronUp, Check, X, Eye } from 'lucide-react'
 
 const DECISIONES = ['pendiente', 'aprobado', 'rechazado', 'modificado', 'diferido', 'pendiente_info']
 const ESTADOS = ['activo', 'en_tratamiento', 'completado', 'progresion', 'cancelado', 'fallecido', 'perdido']
@@ -154,7 +155,17 @@ export default function Casos() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{c.estado}</td>
                     <td className="px-4 py-3 text-gray-500">
-                      {expanded === c.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={`/casos/${c.id}`}
+                          onClick={e => e.stopPropagation()}
+                          title="Ver detalle"
+                          className="p-1 rounded hover:bg-white/10 hover:text-gray-200 transition-colors"
+                        >
+                          <Eye size={16} />
+                        </Link>
+                        {expanded === c.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </div>
                     </td>
                   </tr>
 
