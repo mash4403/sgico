@@ -5,7 +5,6 @@ import { supabase } from './lib/supabase'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import NuevoCaso from './pages/NuevoCaso'
 import Casos from './pages/Casos'
 import CasoDetalle from './pages/CasoDetalle'
 import PresentacionComite from './pages/PresentacionComite'
@@ -51,7 +50,6 @@ export default function App() {
       <Layout session={session}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/nuevo" element={<NuevoCaso />} />
           <Route path="/casos" element={<Casos />} />
           <Route path="/casos/:id" element={<CasoDetalle />} />
           <Route path="/presentar" element={<PresentacionComite />} />

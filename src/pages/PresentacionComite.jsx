@@ -5,7 +5,7 @@ import toast from 'react-hot-toast'
 import {
   ChevronLeft, ChevronRight, Save, Send, Check,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
-  Pill, BookOpen, MessageSquareQuote, Paperclip, FileCheck2,
+  Pill, BookOpen, MessageSquareQuote, DollarSign, Paperclip, FileCheck2,
 } from 'lucide-react'
 
 const STEPS = [
@@ -17,6 +17,7 @@ const STEPS = [
   { id: 'tratamientos',label: 'Tratamientos',    icon: Pill },
   { id: 'evidencia',   label: 'Evidencia',       icon: BookOpen },
   { id: 'pregunta',    label: 'Pregunta',        icon: MessageSquareQuote },
+  { id: 'costos',      label: 'Costos',          icon: DollarSign },
   { id: 'adjuntos',    label: 'Adjuntos',        icon: Paperclip },
 ]
 
@@ -26,6 +27,12 @@ const NA = '__NA__'
 const toIntOrNull = (v) => {
   if (v === '' || v === null || v === undefined) return null
   const n = parseInt(v, 10)
+  return isNaN(n) ? null : n
+}
+
+const toFloatOrNull = (v) => {
+  if (v === '' || v === null || v === undefined) return null
+  const n = parseFloat(v)
   return isNaN(n) ? null : n
 }
 
@@ -62,17 +69,24 @@ const initialState = {
   linea_actual: '',
   molecula_previa: '',
 
-  // 7. Evidencia
+  // 7. Evidencia (PFS/OS del propuesto del estudio pivotal)
   protocolo_id: '', evidencia_referencia: '',
   evidencia_tipo: '', evidencia_link: '',
   pfs_esperado_estudio: '', os_esperado_estudio: '',
 
   // 8. Pregunta
   pregunta_comite: '', tratamiento_propuesto: '',
-  justificacion_clinica: '', costo_estimado: '',
+  justificacion_clinica: '',
   linea_propuesta: '',
 
-  // 9. Adjuntos
+  // 9. Costos por ciclo + PFS/OS del actual (para proyección)
+  costo_ciclo_actual: '', dias_ciclo_actual: '21',
+  pfs_actual_meses: '', os_actual_meses: '',
+  costo_ciclo_propuesto: '', dias_ciclo_propuesto: '21',
+  tiene_invima: '',
+  en_unirse: '',
+
+  // 10. Adjuntos
   adjuntos: [],
 }
 
@@ -136,6 +150,16 @@ export default function PresentacionComite() {
     update(field, data[field] === NA ? '' : NA)
   }
 
+  /* ── Cálculo de proyección de costos (memoizado) ── */
+  const proyeccion = useMemo(() => {
+    return calcularProyeccion(data)
+  }, [
+    data.costo_ciclo_actual, data.dias_ciclo_actual,
+    data.costo_ciclo_propuesto, data.dias_ciclo_propuesto,
+    data.pfs_actual_meses, data.os_actual_meses,
+    data.pfs_esperado_estudio, data.os_esperado_estudio,
+  ])
+
   const validateStep = (idx) => {
     const errs = {}
     const req = (f) => {
@@ -178,6 +202,11 @@ export default function PresentacionComite() {
         req('justificacion_clinica')
         break
       case 8:
+        req('costo_ciclo_actual'); req('dias_ciclo_actual')
+        req('pfs_actual_meses'); req('os_actual_meses')
+        req('costo_ciclo_propuesto'); req('dias_ciclo_propuesto')
+        break
+      case 9:
         break
     }
     setErrors(errs)
@@ -246,7 +275,7 @@ export default function PresentacionComite() {
         pacienteId = nuevoPac.id
       }
 
-      // 2. Insertar caso (con campos viejos Y nuevos)
+      // 2. Insertar caso
       const preguntaTexto = data.pregunta_comite
       const tratamientoTexto = data.tratamiento_propuesto
       const justificacionTexto = data.justificacion_clinica
@@ -263,12 +292,13 @@ export default function PresentacionComite() {
         fecha_solicitud: data.fecha_solicitud,
         tipo_comite: data.tipo_comite,
         prioridad: data.prioridad,
-        estado: 'pendiente',
+        decision: 'pendiente',
+        // estado: NULL — se llenará en seguimiento clínico, no aquí
 
-        // ── Campos VIEJOS (compat con NuevoCaso.jsx y KPIs) ──
+        // Compatibilidad con campos viejos
         motivo: preguntaTexto,
         justificacion: justificacionTexto,
-        molecula_propuesta: tratamientoTexto.slice(0, 100),
+        molecula_propuesta: tratamientoTexto?.slice(0, 100) || null,
         molecula_previa: clean(data.molecula_previa)?.slice(0, 100) || null,
         linea_actual: toIntOrNull(data.linea_actual),
         linea_propuesta: toIntOrNull(data.linea_propuesta),
@@ -279,7 +309,17 @@ export default function PresentacionComite() {
           data.tratamiento_dirigido,
         ].filter(x => x && x !== NA).join(' | ') || null,
 
-        // ── Campos NUEVOS de migración 003 ──
+        // Costos: solo guardamos los inputs del médico en columnas planas
+        costo_previo:    toFloatOrNull(data.costo_ciclo_actual),
+        costo_estimado:  toFloatOrNull(data.costo_ciclo_propuesto),
+        // Snapshot completo de la proyección
+        proyeccion_costos: proyeccion,
+
+        // Regulatorio
+        tiene_invima: data.tiene_invima === 'si' ? true : data.tiene_invima === 'no' ? false : null,
+        en_unirse:    data.en_unirse === 'si' ? true : data.en_unirse === 'no' ? false : null,
+
+        // Campos clínicos detallados
         diagnostico_descripcion: clean(data.diagnostico_descripcion),
         histologia: clean(data.histologia),
         estadio_clinico: clean(data.estadio_clinico),
@@ -309,13 +349,12 @@ export default function PresentacionComite() {
         evidencia_referencia: clean(data.evidencia_referencia),
         evidencia_tipo: clean(data.evidencia_tipo),
         evidencia_link: clean(data.evidencia_link),
-        pfs_esperado_estudio: parseFloat(data.pfs_esperado_estudio) || null,
-        os_esperado_estudio: parseFloat(data.os_esperado_estudio) || null,
+        pfs_esperado_estudio: toFloatOrNull(data.pfs_esperado_estudio),
+        os_esperado_estudio:  toFloatOrNull(data.os_esperado_estudio),
 
         pregunta_comite: preguntaTexto,
         tratamiento_propuesto: tratamientoTexto,
         justificacion_clinica: justificacionTexto,
-        costo_estimado: parseFloat(data.costo_estimado) || null,
 
         adjuntos: data.adjuntos,
       }
@@ -342,28 +381,28 @@ export default function PresentacionComite() {
   return (
     <div className="max-w-5xl mx-auto p-4 lg:p-6">
       <div className="mb-6">
-        <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">
+        <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">
           Presentación al Comité de Tumores
         </h1>
-        <p className="text-slate-500 text-sm mt-1">
+        <p className="text-slate-600 text-sm mt-1">
           Complete la información clínica y administrativa para inscribir el caso
         </p>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 lg:p-6 mb-6">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-4 lg:p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-medium text-slate-500">
+          <span className="text-xs font-semibold text-slate-700">
             Paso {step + 1} de {STEPS.length}
           </span>
-          <span className="text-xs font-bold text-blue-600">{progress}% completado</span>
+          <span className="text-xs font-bold text-blue-700">{progress}% completado</span>
         </div>
-        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mb-6">
+        <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mb-6">
           <div
             className="h-full bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-500"
             style={{ width: `${progress}%` }}
           />
         </div>
-        <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
+        <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-10 gap-2">
           {STEPS.map((s, i) => {
             const Icon = s.icon
             const done = i < step
@@ -377,24 +416,24 @@ export default function PresentacionComite() {
                     ? 'bg-blue-50 text-blue-700 ring-2 ring-blue-500'
                     : done
                     ? 'text-emerald-600 hover:bg-emerald-50'
-                    : 'text-slate-400 hover:bg-slate-50'
+                    : 'text-slate-500 hover:bg-slate-100'
                 }`}
               >
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
                   active ? 'bg-blue-600 text-white' :
                   done ? 'bg-emerald-500 text-white' :
-                  'bg-slate-100'
+                  'bg-slate-200'
                 }`}>
                   {done ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
                 </div>
-                <span className="text-[10px] leading-tight text-center font-medium">{s.label}</span>
+                <span className="text-[10px] leading-tight text-center font-semibold">{s.label}</span>
               </button>
             )
           })}
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 lg:p-8 mb-6">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-4 lg:p-8 mb-6">
         {step === 0 && <StepAdmin {...{ data, update, errors, sedes, eps, medicos, gestores }} />}
         {step === 1 && <StepDemograficos {...{ data, update, errors }} />}
         {step === 2 && <StepDiagnostico {...{ data, update, errors, toggleNA }} />}
@@ -403,17 +442,18 @@ export default function PresentacionComite() {
         {step === 5 && <StepTratamientos {...{ data, update, errors, toggleNA }} />}
         {step === 6 && <StepEvidencia {...{ data, update, errors, protocolos }} />}
         {step === 7 && <StepPregunta {...{ data, update, errors }} />}
-        {step === 8 && <StepAdjuntos {...{ data, update, errors }} />}
+        {step === 8 && <StepCostos {...{ data, update, errors, proyeccion }} />}
+        {step === 9 && <StepAdjuntos {...{ data, update, errors }} />}
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
         <button onClick={back} disabled={step === 0}
-          className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-white border border-slate-400 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
           <ChevronLeft className="w-4 h-4" /> Anterior
         </button>
         <div className="flex gap-2 w-full sm:w-auto">
           <button onClick={guardarBorrador} disabled={saving}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200">
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300">
             <Save className="w-4 h-4" /> {saving ? 'Guardando...' : 'Guardar borrador'}
           </button>
           {step < STEPS.length - 1 ? (
@@ -423,7 +463,7 @@ export default function PresentacionComite() {
             </button>
           ) : (
             <button onClick={presentar} disabled={submitting}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-50">
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 text-white hover:from-emerald-700 hover:to-emerald-800 disabled:opacity-50">
               <Send className="w-4 h-4" />
               {submitting ? 'Presentando...' : 'Presentar al comité'}
             </button>
@@ -433,6 +473,71 @@ export default function PresentacionComite() {
     </div>
   )
 }
+
+/* ──────────────────────────────────────────────────────────────
+   Cálculo de proyección de costos
+   ────────────────────────────────────────────────────────────── */
+function calcularProyeccion(d) {
+  const ca = parseFloat(d.costo_ciclo_actual)
+  const da = parseInt(d.dias_ciclo_actual, 10)
+  const cp = parseFloat(d.costo_ciclo_propuesto)
+  const dp = parseInt(d.dias_ciclo_propuesto, 10)
+  const pfsA = parseFloat(d.pfs_actual_meses)
+  const osA  = parseFloat(d.os_actual_meses)
+  const pfsP = parseFloat(d.pfs_esperado_estudio)
+  const osP  = parseFloat(d.os_esperado_estudio)
+
+  if ([ca, da, cp, dp, pfsA, osA, pfsP, osP].some(v => isNaN(v) || v <= 0)) return null
+
+  // Ciclos = (meses × 30) / días por ciclo
+  const ciclosPfsA = (pfsA * 30) / da
+  const ciclosOsA  = (osA  * 30) / da
+  const ciclosPfsP = (pfsP * 30) / dp
+  const ciclosOsP  = (osP  * 30) / dp
+
+  const totalPfsA = ciclosPfsA * ca
+  const totalOsA  = ciclosOsA  * ca
+  const totalPfsP = ciclosPfsP * cp
+  const totalOsP  = ciclosOsP  * cp
+
+  const diffPfs = totalPfsP - totalPfsA
+  const diffOs  = totalOsP  - totalOsA
+
+  const ganPfs = pfsP - pfsA
+  const ganOs  = osP  - osA
+  const costoMesPfs = ganPfs > 0 ? diffPfs / ganPfs : null
+  const costoMesOs  = ganOs  > 0 ? diffOs  / ganOs  : null
+
+  return {
+    actual: {
+      costo_ciclo: ca, duracion_dias: da,
+      pfs_meses: pfsA, os_meses: osA,
+      ciclos_pfs: redondear(ciclosPfsA, 2), ciclos_os: redondear(ciclosOsA, 2),
+      total_pfs: redondear(totalPfsA), total_os: redondear(totalOsA),
+    },
+    propuesto: {
+      costo_ciclo: cp, duracion_dias: dp,
+      pfs_meses: pfsP, os_meses: osP,
+      ciclos_pfs: redondear(ciclosPfsP, 2), ciclos_os: redondear(ciclosOsP, 2),
+      total_pfs: redondear(totalPfsP), total_os: redondear(totalOsP),
+    },
+    diferencial: {
+      diferencia_pfs: redondear(diffPfs),
+      diferencia_os:  redondear(diffOs),
+      ganancia_pfs_meses: redondear(ganPfs, 2),
+      ganancia_os_meses:  redondear(ganOs, 2),
+      costo_por_mes_pfs_ganado: costoMesPfs != null ? redondear(costoMesPfs) : null,
+      costo_por_mes_os_ganado:  costoMesOs  != null ? redondear(costoMesOs)  : null,
+    },
+  }
+}
+
+const redondear = (n, dec = 0) => {
+  const f = Math.pow(10, dec)
+  return Math.round(n * f) / f
+}
+
+const fmtCOP = (n) => n == null ? '—' : '$ ' + Number(n).toLocaleString('es-CO') + ' COP'
 
 /* Helpers */
 const clean = (v) => (v === NA ? 'No aplica' : (v?.toString().trim() || null))
@@ -445,19 +550,21 @@ const armarTNM = (d) => {
   return `${t || '-'}${n || '-'}${m || '-'}`
 }
 
-/* UI */
+/* ──────────────────────────────────────────────────────────────
+   UI primitives — contraste mejorado
+   ────────────────────────────────────────────────────────────── */
 function Section({ title, description, icon: Icon, children }) {
   return (
     <div>
-      <div className="flex items-start gap-3 mb-6 pb-4 border-b border-slate-100">
+      <div className="flex items-start gap-3 mb-6 pb-4 border-b border-slate-200">
         {Icon && (
-          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
             <Icon className="w-5 h-5" />
           </div>
         )}
         <div>
-          <h2 className="text-lg font-bold text-slate-800">{title}</h2>
-          {description && <p className="text-sm text-slate-500 mt-0.5">{description}</p>}
+          <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+          {description && <p className="text-sm text-slate-600 mt-0.5">{description}</p>}
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{children}</div>
@@ -465,36 +572,37 @@ function Section({ title, description, icon: Icon, children }) {
   )
 }
 
-function Field({ label, required, error, naValue, onToggleNA, children, full }) {
+function Field({ label, required, error, naValue, onToggleNA, children, full, hint }) {
   return (
     <div className={full ? 'md:col-span-2' : ''}>
       <div className="flex items-center justify-between mb-1.5">
-        <label className="text-sm font-medium text-slate-700">
-          {label} {required && <span className="text-red-500">*</span>}
+        <label className="text-sm font-semibold text-slate-800">
+          {label} {required && <span className="text-red-600">*</span>}
         </label>
         {onToggleNA && (
           <button type="button" onClick={onToggleNA}
-            className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${
-              naValue ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300'
-                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+            className={`text-[11px] px-2 py-0.5 rounded-full font-semibold transition-colors ${
+              naValue ? 'bg-amber-200 text-amber-900 ring-1 ring-amber-400'
+                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
             }`}>
             {naValue ? '✓ No aplica' : 'No aplica'}
           </button>
         )}
       </div>
       <div className={naValue ? 'opacity-40 pointer-events-none' : ''}>{children}</div>
-      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+      {hint && <p className="text-xs text-slate-500 mt-1">{hint}</p>}
+      {error && <p className="text-xs text-red-600 mt-1 font-medium">{error}</p>}
     </div>
   )
 }
 
-const inputBase = 'w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
+const inputBase = 'w-full px-3 py-2 border-2 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
 
 function Input({ value, onChange, error, ...rest }) {
   return (
     <input value={value === NA ? '' : (value || '')}
       onChange={e => onChange(e.target.value)}
-      className={`${inputBase} ${error ? 'border-red-300 bg-red-50' : 'border-slate-300'}`}
+      className={`${inputBase} ${error ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-white'}`}
       {...rest} />
   )
 }
@@ -503,7 +611,7 @@ function TextArea({ value, onChange, error, rows = 3, ...rest }) {
   return (
     <textarea value={value === NA ? '' : (value || '')}
       onChange={e => onChange(e.target.value)} rows={rows}
-      className={`${inputBase} resize-none ${error ? 'border-red-300 bg-red-50' : 'border-slate-300'}`}
+      className={`${inputBase} resize-none ${error ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-white'}`}
       {...rest} />
   )
 }
@@ -512,7 +620,7 @@ function Select({ value, onChange, options, error, placeholder = 'Seleccione...'
   return (
     <select value={value === NA ? '' : (value || '')}
       onChange={e => onChange(e.target.value)}
-      className={`${inputBase} ${error ? 'border-red-300 bg-red-50' : 'border-slate-300'}`}>
+      className={`${inputBase} ${error ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-white'}`}>
       <option value="">{placeholder}</option>
       {options.map(o => (
         <option key={o.value} value={o.value}>{o.label}</option>
@@ -521,7 +629,9 @@ function Select({ value, onChange, options, error, placeholder = 'Seleccione...'
   )
 }
 
-/* STEPS */
+/* ──────────────────────────────────────────────────────────────
+   STEPS
+   ────────────────────────────────────────────────────────────── */
 function StepAdmin({ data, update, errors, sedes, eps, medicos, gestores }) {
   return (
     <Section title="Datos administrativos" description="Información de ruta del paciente y solicitante" icon={Building2}>
@@ -766,10 +876,10 @@ function StepEstudios({ data, update, errors, toggleNA }) {
 function StepTratamientos({ data, update, errors, toggleNA }) {
   return (
     <Section title="Tratamientos previos" description="Líneas de tratamiento recibidas con respuesta" icon={Pill}>
-      <Field label="Línea actual de tratamiento">
+      <Field label="Línea actual de tratamiento"
+        hint="Número de líneas previas recibidas. 0 = paciente naive.">
         <Input type="number" min="0" max="10" value={data.linea_actual}
           onChange={v => update('linea_actual', v)} placeholder="Ej. 1, 2, 3..." />
-        <p className="text-xs text-slate-500 mt-1">Número de líneas previas recibidas. 0 = paciente naive.</p>
       </Field>
       <Field label="Molécula de la línea actual">
         <Input value={data.molecula_previa} onChange={v => update('molecula_previa', v)}
@@ -822,16 +932,14 @@ function StepEvidencia({ data, update, errors, protocolos }) {
   }
 
   return (
-    <Section title="Estudio que avala la solicitud" description="Evidencia pivotal y resultados esperados (PFS / OS)" icon={BookOpen}>
-      <Field label="Protocolo / régimen propuesto" required full error={errors.protocolo_id}>
+    <Section title="Estudio que avala la solicitud" description="Evidencia pivotal del tratamiento PROPUESTO" icon={BookOpen}>
+      <Field label="Protocolo / régimen propuesto" required full error={errors.protocolo_id}
+        hint="Al seleccionar un protocolo se autocompletan PFS y OS esperados.">
         <Select value={data.protocolo_id} onChange={onProtocoloChange}
           options={protocolos.map(p => ({
             value: p.id,
             label: `${p.nombre}${p.estudio_pivotal ? ` — ${p.estudio_pivotal}` : ''}`,
           }))} placeholder="Seleccione un protocolo del catálogo..." error={errors.protocolo_id} />
-        <p className="text-xs text-slate-500 mt-1">
-          Al seleccionar un protocolo se autocompletan PFS y OS esperados según el estudio pivotal.
-        </p>
       </Field>
       <Field label="Estudio o referencia bibliográfica" required full error={errors.evidencia_referencia}>
         <Input value={data.evidencia_referencia} onChange={v => update('evidencia_referencia', v)}
@@ -850,14 +958,16 @@ function StepEvidencia({ data, update, errors, protocolos }) {
       </Field>
       <Field label="Enlace al estudio (DOI / PubMed)">
         <Input value={data.evidencia_link} onChange={v => update('evidencia_link', v)}
-          placeholder="https://doi.org/... o https://pubmed.ncbi.nlm.nih.gov/..." />
+          placeholder="https://doi.org/..." />
       </Field>
-      <Field label="PFS esperado (meses)" required error={errors.pfs_esperado_estudio}>
+      <Field label="PFS esperado del PROPUESTO (meses)" required error={errors.pfs_esperado_estudio}
+        hint="Progression-Free Survival reportado en el estudio pivotal.">
         <Input type="number" step="0.1" min="0" value={data.pfs_esperado_estudio}
           onChange={v => update('pfs_esperado_estudio', v)} placeholder="Ej. 8.8"
           error={errors.pfs_esperado_estudio} />
       </Field>
-      <Field label="OS esperado (meses)" required error={errors.os_esperado_estudio}>
+      <Field label="OS esperado del PROPUESTO (meses)" required error={errors.os_esperado_estudio}
+        hint="Overall Survival reportado en el estudio pivotal.">
         <Input type="number" step="0.1" min="0" value={data.os_esperado_estudio}
           onChange={v => update('os_esperado_estudio', v)} placeholder="Ej. 22.0"
           error={errors.os_esperado_estudio} />
@@ -880,10 +990,7 @@ function StepPregunta({ data, update, errors }) {
         <Input type="number" min="1" max="10" value={data.linea_propuesta}
           onChange={v => update('linea_propuesta', v)} placeholder="Ej. 2" />
       </Field>
-      <Field label="Costo estimado (COP)">
-        <Input type="number" min="0" value={data.costo_estimado}
-          onChange={v => update('costo_estimado', v)} placeholder="Ej. 45000000" />
-      </Field>
+      <div />
       <Field label="Tratamiento propuesto" required full error={errors.tratamiento_propuesto}>
         <TextArea value={data.tratamiento_propuesto} onChange={v => update('tratamiento_propuesto', v)}
           rows={3}
@@ -900,8 +1007,172 @@ function StepPregunta({ data, update, errors }) {
   )
 }
 
+/* ──────────────────────────────────────────────────────────────
+   STEP 9 — Costos por ciclo + Proyección PFS/OS
+   ────────────────────────────────────────────────────────────── */
+function StepCostos({ data, update, errors, proyeccion }) {
+  return (
+    <Section
+      title="Costos del tratamiento por ciclo"
+      description="Inputs para la proyección de impacto económico sobre PFS y OS"
+      icon={DollarSign}
+    >
+      {/* TRATAMIENTO ACTUAL */}
+      <div className="md:col-span-2">
+        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3 mt-2">
+          🩺 Tratamiento actual del paciente
+        </h3>
+      </div>
+      <Field label="Costo por ciclo (COP)" required error={errors.costo_ciclo_actual}>
+        <Input type="number" min="0" value={data.costo_ciclo_actual}
+          onChange={v => update('costo_ciclo_actual', v)} placeholder="Ej. 2500000"
+          error={errors.costo_ciclo_actual} />
+      </Field>
+      <Field label="Duración del ciclo (días)" required error={errors.dias_ciclo_actual}>
+        <Input type="number" min="1" value={data.dias_ciclo_actual}
+          onChange={v => update('dias_ciclo_actual', v)} placeholder="21"
+          error={errors.dias_ciclo_actual} />
+      </Field>
+      <Field label="PFS estimado actual (meses)" required error={errors.pfs_actual_meses}>
+        <Input type="number" step="0.1" min="0" value={data.pfs_actual_meses}
+          onChange={v => update('pfs_actual_meses', v)} placeholder="Ej. 4.5"
+          error={errors.pfs_actual_meses} />
+      </Field>
+      <Field label="OS estimado actual (meses)" required error={errors.os_actual_meses}>
+        <Input type="number" step="0.1" min="0" value={data.os_actual_meses}
+          onChange={v => update('os_actual_meses', v)} placeholder="Ej. 13.5"
+          error={errors.os_actual_meses} />
+      </Field>
+
+      {/* TRATAMIENTO PROPUESTO */}
+      <div className="md:col-span-2 mt-4">
+        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3">
+          💊 Tratamiento propuesto
+        </h3>
+      </div>
+      <Field label="Costo por ciclo (COP)" required error={errors.costo_ciclo_propuesto}>
+        <Input type="number" min="0" value={data.costo_ciclo_propuesto}
+          onChange={v => update('costo_ciclo_propuesto', v)} placeholder="Ej. 8000000"
+          error={errors.costo_ciclo_propuesto} />
+      </Field>
+      <Field label="Duración del ciclo (días)" required error={errors.dias_ciclo_propuesto}>
+        <Input type="number" min="1" value={data.dias_ciclo_propuesto}
+          onChange={v => update('dias_ciclo_propuesto', v)} placeholder="28"
+          error={errors.dias_ciclo_propuesto} />
+      </Field>
+      <Field label="PFS esperado propuesto" hint="Tomado del paso Evidencia">
+        <Input value={data.pfs_esperado_estudio ? `${data.pfs_esperado_estudio} meses` : ''} disabled
+          placeholder="Llene primero el paso Evidencia" />
+      </Field>
+      <Field label="OS esperado propuesto" hint="Tomado del paso Evidencia">
+        <Input value={data.os_esperado_estudio ? `${data.os_esperado_estudio} meses` : ''} disabled
+          placeholder="Llene primero el paso Evidencia" />
+      </Field>
+
+      {/* COMPLIANCE REGULATORIO */}
+      <div className="md:col-span-2 mt-4">
+        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3">
+          📋 Estatus regulatorio
+        </h3>
+      </div>
+      <Field label="¿Tiene INVIMA?">
+        <Select value={data.tiene_invima} onChange={v => update('tiene_invima', v)}
+          options={[
+            { value: 'si', label: 'Sí, registro INVIMA vigente' },
+            { value: 'no', label: 'No tiene INVIMA' },
+          ]} />
+      </Field>
+      <Field label="¿Está en base UNIRSE?">
+        <Select value={data.en_unirse} onChange={v => update('en_unirse', v)}
+          options={[
+            { value: 'si', label: 'Sí, en UNIRSE' },
+            { value: 'no', label: 'No está en UNIRSE' },
+          ]} />
+      </Field>
+
+      {/* PROYECCIÓN AUTOMÁTICA */}
+      {proyeccion ? (
+        <div className="md:col-span-2 mt-6 bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-5">
+          <h3 className="text-sm font-bold text-blue-900 uppercase tracking-wide mb-4">
+            📊 Proyección de impacto económico
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="bg-white rounded-lg p-3 border border-blue-100">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase mb-2">Tratamiento actual</div>
+              <div className="space-y-1 text-sm">
+                <Row label={`Ciclos en PFS (${proyeccion.actual.pfs_meses}m)`} value={`${proyeccion.actual.ciclos_pfs} × ${fmtCOP(proyeccion.actual.costo_ciclo)}`} />
+                <Row label="= Costo total PFS" value={fmtCOP(proyeccion.actual.total_pfs)} bold />
+                <Row label={`Ciclos en OS (${proyeccion.actual.os_meses}m)`} value={`${proyeccion.actual.ciclos_os} × ${fmtCOP(proyeccion.actual.costo_ciclo)}`} />
+                <Row label="= Costo total OS" value={fmtCOP(proyeccion.actual.total_os)} bold />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg p-3 border border-blue-100">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase mb-2">Tratamiento propuesto</div>
+              <div className="space-y-1 text-sm">
+                <Row label={`Ciclos en PFS (${proyeccion.propuesto.pfs_meses}m)`} value={`${proyeccion.propuesto.ciclos_pfs} × ${fmtCOP(proyeccion.propuesto.costo_ciclo)}`} />
+                <Row label="= Costo total PFS" value={fmtCOP(proyeccion.propuesto.total_pfs)} bold />
+                <Row label={`Ciclos en OS (${proyeccion.propuesto.os_meses}m)`} value={`${proyeccion.propuesto.ciclos_os} × ${fmtCOP(proyeccion.propuesto.costo_ciclo)}`} />
+                <Row label="= Costo total OS" value={fmtCOP(proyeccion.propuesto.total_os)} bold />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg p-4 border-2 border-blue-300">
+            <div className="text-[11px] font-bold text-blue-900 uppercase mb-3">
+              Diferencial (propuesto − actual)
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <DiffRow label="Diferencia hasta progresión (PFS)" value={proyeccion.diferencial.diferencia_pfs} />
+              <DiffRow label="Diferencia hasta fallecimiento (OS)" value={proyeccion.diferencial.diferencia_os} />
+              <DiffRow label={`Costo por mes ganado de PFS (${proyeccion.diferencial.ganancia_pfs_meses > 0 ? '+' : ''}${proyeccion.diferencial.ganancia_pfs_meses}m)`}
+                value={proyeccion.diferencial.costo_por_mes_pfs_ganado} />
+              <DiffRow label={`Costo por mes ganado de OS (${proyeccion.diferencial.ganancia_os_meses > 0 ? '+' : ''}${proyeccion.diferencial.ganancia_os_meses}m)`}
+                value={proyeccion.diferencial.costo_por_mes_os_ganado} />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="md:col-span-2 mt-4 bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+          ⚠️ Llene todos los costos y duraciones de ciclo, así como el PFS/OS actual y el del paso Evidencia, para ver la proyección automática.
+        </div>
+      )}
+    </Section>
+  )
+}
+
+function Row({ label, value, bold }) {
+  return (
+    <div className="flex justify-between items-baseline gap-2">
+      <span className="text-slate-600 text-xs">{label}</span>
+      <span className={`text-slate-900 ${bold ? 'font-bold' : ''}`}>{value}</span>
+    </div>
+  )
+}
+
+function DiffRow({ label, value }) {
+  if (value == null) return (
+    <div>
+      <div className="text-[11px] text-slate-500 uppercase tracking-wide">{label}</div>
+      <div className="text-slate-400 italic text-sm">No calculable</div>
+    </div>
+  )
+  const positive = value > 0
+  return (
+    <div>
+      <div className="text-[11px] text-slate-500 uppercase tracking-wide">{label}</div>
+      <div className={`font-bold text-base ${positive ? 'text-rose-700' : 'text-emerald-700'}`}>
+        {positive ? '+ ' : '− '}{fmtCOP(Math.abs(value))}
+      </div>
+    </div>
+  )
+}
+
 function StepAdjuntos({ data, update }) {
   const [uploading, setUploading] = useState(false)
+
+  const sanitize = (name) => name.replace(/[^\w.\-]/g, '_').replace(/_+/g, '_')
 
   const onUpload = async (e) => {
     const files = Array.from(e.target.files || [])
@@ -910,7 +1181,8 @@ function StepAdjuntos({ data, update }) {
     try {
       const nuevos = []
       for (const file of files) {
-        const path = `casos/${Date.now()}_${file.name}`
+        const cleanName = sanitize(file.name)
+        const path = `casos/${Date.now()}_${cleanName}`
         const { error } = await supabase.storage
           .from('adjuntos').upload(path, file, { upsert: false })
         if (error) throw error
@@ -940,13 +1212,13 @@ function StepAdjuntos({ data, update }) {
       <div className="md:col-span-2">
         <label className="block">
           <div className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-            uploading ? 'border-blue-300 bg-blue-50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
+            uploading ? 'border-blue-400 bg-blue-50' : 'border-slate-400 hover:border-blue-500 hover:bg-slate-50'
           }`}>
-            <Paperclip className="w-10 h-10 mx-auto mb-2 text-slate-400" />
-            <p className="text-sm font-medium text-slate-700">
+            <Paperclip className="w-10 h-10 mx-auto mb-2 text-slate-500" />
+            <p className="text-sm font-semibold text-slate-800">
               {uploading ? 'Subiendo archivos...' : 'Haga clic o arrastre archivos aquí'}
             </p>
-            <p className="text-xs text-slate-500 mt-1">PDF, JPG, PNG · máximo 25 MB por archivo</p>
+            <p className="text-xs text-slate-600 mt-1">PDF, JPG, PNG · máximo 25 MB por archivo</p>
           </div>
           <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png"
             onChange={onUpload} className="hidden" disabled={uploading} />
@@ -955,14 +1227,14 @@ function StepAdjuntos({ data, update }) {
         {data.adjuntos?.length > 0 && (
           <div className="mt-4 space-y-2">
             {data.adjuntos.map((f, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+              <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="flex items-center gap-2 min-w-0">
                   <FileCheck2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="text-sm text-slate-700 truncate">{f.name}</span>
-                  <span className="text-xs text-slate-400 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                  <span className="text-sm text-slate-800 truncate">{f.name}</span>
+                  <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
                 </div>
                 <button onClick={() => remove(i)}
-                  className="text-xs text-red-600 hover:text-red-700 ml-2">Eliminar</button>
+                  className="text-xs text-red-600 hover:text-red-700 ml-2 font-semibold">Eliminar</button>
               </div>
             ))}
           </div>

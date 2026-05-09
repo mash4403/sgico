@@ -6,23 +6,23 @@ import toast from 'react-hot-toast'
 import {
   ArrowLeft, Printer, Gavel, Clock, FileText, Download,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
-  Pill, BookOpen, MessageSquareQuote, Paperclip,
-  CheckCircle2, XCircle, AlertCircle, Loader2,
+  Pill, BookOpen, MessageSquareQuote, DollarSign, Paperclip,
+  CheckCircle2, XCircle, AlertCircle, Loader2, ShieldCheck,
 } from 'lucide-react'
 
-const ESTADO_LABELS = {
-  pendiente:   { label: 'Pendiente',      color: 'bg-amber-100 text-amber-700 ring-amber-300',     icon: Clock },
-  en_revision: { label: 'En revisión',    color: 'bg-blue-100 text-blue-700 ring-blue-300',         icon: Loader2 },
-  aprobado:    { label: 'Aprobado',       color: 'bg-emerald-100 text-emerald-700 ring-emerald-300', icon: CheckCircle2 },
-  rechazado:   { label: 'Rechazado',      color: 'bg-rose-100 text-rose-700 ring-rose-300',         icon: XCircle },
-  aplazado:    { label: 'Aplazado',       color: 'bg-slate-100 text-slate-700 ring-slate-300',      icon: AlertCircle },
-  otra:        { label: 'Otra decisión',  color: 'bg-purple-100 text-purple-700 ring-purple-300',   icon: AlertCircle },
+const DECISION_LABELS = {
+  pendiente:      { label: 'Pendiente de comité', color: 'bg-amber-100 text-amber-800 ring-amber-300',     icon: Clock },
+  aprobado:       { label: 'Aprobado',            color: 'bg-emerald-100 text-emerald-800 ring-emerald-300', icon: CheckCircle2 },
+  rechazado:      { label: 'Rechazado',           color: 'bg-rose-100 text-rose-800 ring-rose-300',         icon: XCircle },
+  modificado:     { label: 'Aprobado con modif.', color: 'bg-blue-100 text-blue-800 ring-blue-300',         icon: CheckCircle2 },
+  diferido:       { label: 'Diferido',            color: 'bg-slate-200 text-slate-800 ring-slate-400',      icon: AlertCircle },
+  pendiente_info: { label: 'Pendiente info',      color: 'bg-purple-100 text-purple-800 ring-purple-300',   icon: AlertCircle },
 }
 
 const PRIORIDAD_LABELS = {
-  normal:  { label: 'Normal',  color: 'bg-slate-100 text-slate-700' },
-  urgente: { label: 'Urgente', color: 'bg-orange-100 text-orange-700' },
-  critica: { label: 'Crítica', color: 'bg-red-100 text-red-700' },
+  normal:  { label: 'Normal',  color: 'bg-slate-200 text-slate-800' },
+  urgente: { label: 'Urgente', color: 'bg-orange-100 text-orange-800' },
+  critica: { label: 'Crítica', color: 'bg-red-100 text-red-800' },
 }
 
 const TIPO_COMITE_LABELS = {
@@ -50,6 +50,8 @@ const EVIDENCIA_LABELS = {
   consenso: 'Consenso de expertos', real_world: 'Evidencia del mundo real',
 }
 const GENERO_LABELS = { M: 'Masculino', F: 'Femenino', I: 'Indeterminado' }
+
+const fmtCOP = (n) => n == null ? '—' : '$ ' + Number(n).toLocaleString('es-CO') + ' COP'
 
 export default function CasoDetalle() {
   const { id } = useParams()
@@ -136,55 +138,51 @@ export default function CasoDetalle() {
   }
   if (!caso) return null
 
-  const estado = ESTADO_LABELS[caso.estado] || ESTADO_LABELS.pendiente
-  const EstadoIcon = estado.icon
+  const decision = DECISION_LABELS[caso.decision] || DECISION_LABELS.pendiente
+  const DecisionIcon = decision.icon
   const prioridad = PRIORIDAD_LABELS[caso.prioridad] || PRIORIDAD_LABELS.normal
-  const puedeAbrirComite = caso.estado === 'pendiente' || caso.estado === 'en_revision'
-
-  // Telefono real puede estar en telefono1 o telefono2
+  const puedeAbrirComite = caso.decision === 'pendiente' || caso.decision === 'pendiente_info'
   const telefono = caso.paciente?.telefono1 || caso.paciente?.telefono2
 
   return (
     <div className="max-w-5xl mx-auto p-4 lg:p-6 print:p-0 print:max-w-full">
-      {/* Header — oculto en impresión */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 print:hidden">
         <button onClick={() => navigate('/casos')}
-          className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
+          className="flex items-center gap-2 text-sm text-slate-700 hover:text-slate-900 font-medium">
           <ArrowLeft className="w-4 h-4" /> Volver al listado
         </button>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowHistorial(s => !s)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm">
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
             <Clock className="w-4 h-4" />
             {showHistorial ? 'Ocultar' : 'Ver'} historial
           </button>
           <button onClick={imprimir}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm">
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
             <Printer className="w-4 h-4" /> Imprimir / PDF
           </button>
           <button disabled={!puedeAbrirComite}
             title={puedeAbrirComite ? 'Abrir mesa de comité' : 'Caso ya decidido'}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
             onClick={() => toast('Mesa de comité — próximamente', { icon: '🔜' })}>
             <Gavel className="w-4 h-4" /> Abrir mesa de comité
           </button>
         </div>
       </div>
 
-      {/* Cabecera del caso */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6 print:shadow-none print:border print:rounded-none">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-6 mb-6 print:shadow-none print:border print:rounded-none">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 ${estado.color}`}>
-                <EstadoIcon className="w-3.5 h-3.5" />
-                {estado.label}
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${decision.color}`}>
+                <DecisionIcon className="w-3.5 h-3.5" />
+                {decision.label}
               </span>
-              <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${prioridad.color}`}>
+              <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${prioridad.color}`}>
                 Prioridad: {prioridad.label}
               </span>
               {caso.tipo_comite && (
-                <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">
+                <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800">
                   {TIPO_COMITE_LABELS[caso.tipo_comite] || caso.tipo_comite}
                 </span>
               )}
@@ -192,16 +190,16 @@ export default function CasoDetalle() {
             <h1 className="text-2xl lg:text-3xl font-bold text-slate-900 mb-1">
               {caso.paciente?.nombre || '—'}
             </h1>
-            <div className="text-sm text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+            <div className="text-sm text-slate-700 flex flex-wrap gap-x-4 gap-y-1">
               <span>{caso.paciente?.tipo_documento} {caso.paciente?.documento}</span>
               {edad !== null && <span>· {edad} años</span>}
               {caso.paciente?.genero && <span>· {GENERO_LABELS[caso.paciente.genero]}</span>}
             </div>
           </div>
-          <div className="text-right text-sm text-slate-500 shrink-0">
-            <div className="text-xs uppercase tracking-wide">Caso</div>
-            <div className="font-bold text-slate-700 text-lg">#{caso.id}</div>
-            <div className="mt-1">Solicitado: <strong className="text-slate-700">{formatDate(caso.fecha_solicitud)}</strong></div>
+          <div className="text-right text-sm text-slate-600 shrink-0">
+            <div className="text-xs uppercase tracking-wide font-semibold">Caso</div>
+            <div className="font-bold text-slate-900 text-lg">#{caso.id}</div>
+            <div className="mt-1">Solicitado: <strong className="text-slate-800">{formatDate(caso.fecha_solicitud)}</strong></div>
           </div>
         </div>
       </div>
@@ -270,9 +268,9 @@ export default function CasoDetalle() {
         <KV label="OS esperado"         value={caso.os_esperado_estudio ? `${caso.os_esperado_estudio} meses` : null} />
         {caso.evidencia_link && (
           <div className="md:col-span-2">
-            <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Enlace al estudio</div>
+            <div className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Enlace al estudio</div>
             <a href={caso.evidencia_link} target="_blank" rel="noopener noreferrer"
-              className="text-sm text-blue-600 hover:underline break-all">
+              className="text-sm text-blue-700 hover:underline break-all">
               {caso.evidencia_link}
             </a>
           </div>
@@ -282,24 +280,46 @@ export default function CasoDetalle() {
       <Section title="Pregunta al comité" icon={MessageSquareQuote} highlight>
         <KV label="Pregunta específica"  value={caso.pregunta_comite || caso.motivo} full />
         <KV label="Línea propuesta"      value={caso.linea_propuesta != null ? `Línea ${caso.linea_propuesta}` : null} />
-        <KV label="Costo estimado"
-            value={caso.costo_estimado != null
-              ? `$ ${Number(caso.costo_estimado).toLocaleString('es-CO')} COP`
-              : null} />
+        <div /> {/* spacer */}
         <KV label="Tratamiento propuesto" value={caso.tratamiento_propuesto || caso.molecula_propuesta} full />
         <KV label="Justificación clínica" value={caso.justificacion_clinica || caso.justificacion} full />
       </Section>
+
+      {/* PROYECCIÓN DE COSTOS */}
+      {caso.proyeccion_costos && (
+        <ProyeccionCostosSection proyeccion={caso.proyeccion_costos} caso={caso} />
+      )}
+
+      {/* REGULATORIO */}
+      {(caso.tiene_invima != null || caso.en_unirse != null) && (
+        <Section title="Estatus regulatorio" icon={ShieldCheck}>
+          <div className="md:col-span-2 flex flex-wrap gap-3">
+            {caso.tiene_invima === true && (
+              <Badge color="emerald">✅ INVIMA vigente</Badge>
+            )}
+            {caso.tiene_invima === false && (
+              <Badge color="rose">⚠️ Sin INVIMA</Badge>
+            )}
+            {caso.en_unirse === true && (
+              <Badge color="blue">📋 En base UNIRSE</Badge>
+            )}
+            {caso.en_unirse === false && (
+              <Badge color="slate">📋 No está en UNIRSE</Badge>
+            )}
+          </div>
+        </Section>
+      )}
 
       {caso.adjuntos?.length > 0 && (
         <Section title={`Adjuntos (${caso.adjuntos.length})`} icon={Paperclip}>
           <div className="md:col-span-2 space-y-2 print:hidden">
             {caso.adjuntos.map((f, i) => (
               <button key={i} onClick={() => descargarAdjunto(f.path, f.name)}
-                className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors text-left">
+                className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors text-left border border-slate-200">
                 <div className="flex items-center gap-2 min-w-0">
-                  <FileText className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span className="text-sm text-slate-700 truncate">{f.name}</span>
-                  <span className="text-xs text-slate-400 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                  <FileText className="w-4 h-4 text-slate-600 shrink-0" />
+                  <span className="text-sm text-slate-800 truncate">{f.name}</span>
+                  <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
                 </div>
                 <Download className="w-4 h-4 text-blue-600 shrink-0 ml-2" />
               </button>
@@ -314,43 +334,43 @@ export default function CasoDetalle() {
       )}
 
       {showHistorial && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6 print:hidden">
-          <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-100">
-            <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-6 mb-6 print:hidden">
+          <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-200">
+            <div className="w-10 h-10 rounded-lg bg-slate-200 text-slate-700 flex items-center justify-center">
               <Clock className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-800">Historial de cambios</h2>
-              <p className="text-sm text-slate-500">{historial.length} eventos registrados</p>
+              <h2 className="text-lg font-bold text-slate-900">Historial de cambios</h2>
+              <p className="text-sm text-slate-600">{historial.length} eventos registrados</p>
             </div>
           </div>
           {historial.length === 0 ? (
-            <p className="text-sm text-slate-500 text-center py-6">Sin cambios registrados.</p>
+            <p className="text-sm text-slate-600 text-center py-6">Sin cambios registrados.</p>
           ) : (
-            <ol className="relative border-l-2 border-slate-200 ml-2 space-y-4">
+            <ol className="relative border-l-2 border-slate-300 ml-2 space-y-4">
               {historial.map(h => (
                 <li key={h.id} className="ml-4">
-                  <div className="absolute -left-[7px] w-3 h-3 rounded-full bg-blue-500 border-2 border-white" />
+                  <div className="absolute -left-[7px] w-3 h-3 rounded-full bg-blue-600 border-2 border-white" />
                   <div className="flex flex-col sm:flex-row sm:items-center gap-1 mb-1">
-                    <span className="text-sm font-semibold text-slate-800">
+                    <span className="text-sm font-semibold text-slate-900">
                       {h.accion === 'crear'      && 'Caso creado'}
                       {h.accion === 'actualizar' && 'Caso actualizado'}
                       {h.accion === 'eliminar'   && 'Caso eliminado'}
                     </span>
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-slate-600">
                       {new Date(h.created_at).toLocaleString('es-CO')}
                       {h.usuario_email && ` · ${h.usuario_email}`}
                     </span>
                   </div>
                   {h.cambios && Object.keys(h.cambios).length > 0 && (
-                    <div className="bg-slate-50 rounded-lg p-3 text-xs">
+                    <div className="bg-slate-50 rounded-lg p-3 text-xs border border-slate-200">
                       {Object.entries(h.cambios).map(([campo, val]) => (
                         <div key={campo} className="py-1">
-                          <span className="font-mono font-semibold text-slate-700">{campo}</span>
-                          <span className="text-slate-400 mx-1">:</span>
-                          <span className="text-rose-600 line-through">{formatVal(val.antes)}</span>
-                          <span className="text-slate-400 mx-1">→</span>
-                          <span className="text-emerald-600 font-medium">{formatVal(val.despues)}</span>
+                          <span className="font-mono font-semibold text-slate-800">{campo}</span>
+                          <span className="text-slate-500 mx-1">:</span>
+                          <span className="text-rose-700 line-through">{formatVal(val.antes)}</span>
+                          <span className="text-slate-500 mx-1">→</span>
+                          <span className="text-emerald-700 font-medium">{formatVal(val.despues)}</span>
                         </div>
                       ))}
                     </div>
@@ -378,18 +398,101 @@ export default function CasoDetalle() {
   )
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Sección de proyección de costos
+   ────────────────────────────────────────────────────────────── */
+function ProyeccionCostosSection({ proyeccion, caso }) {
+  const p = proyeccion
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border-2 border-blue-300 mb-6 p-6 print:shadow-none print:border print:rounded-none print:break-inside-avoid">
+      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-blue-200">
+        <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+          <DollarSign className="w-5 h-5" />
+        </div>
+        <h2 className="text-lg font-bold text-slate-900">Proyección de impacto económico</h2>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+          <div className="text-xs font-bold text-slate-700 uppercase mb-3">🩺 Tratamiento actual</div>
+          <ProyRow label="Costo por ciclo" value={fmtCOP(p.actual?.costo_ciclo)} />
+          <ProyRow label="Duración del ciclo" value={`${p.actual?.duracion_dias} días`} />
+          <ProyRow label="PFS estimado" value={`${p.actual?.pfs_meses} meses`} />
+          <ProyRow label="OS estimado" value={`${p.actual?.os_meses} meses`} />
+          <hr className="my-2 border-slate-300" />
+          <ProyRow label={`Costo total PFS (${p.actual?.ciclos_pfs} ciclos)`} value={fmtCOP(p.actual?.total_pfs)} bold />
+          <ProyRow label={`Costo total OS (${p.actual?.ciclos_os} ciclos)`} value={fmtCOP(p.actual?.total_os)} bold />
+        </div>
+
+        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+          <div className="text-xs font-bold text-blue-800 uppercase mb-3">💊 Tratamiento propuesto</div>
+          <ProyRow label="Costo por ciclo" value={fmtCOP(p.propuesto?.costo_ciclo)} />
+          <ProyRow label="Duración del ciclo" value={`${p.propuesto?.duracion_dias} días`} />
+          <ProyRow label="PFS esperado" value={`${p.propuesto?.pfs_meses} meses`} />
+          <ProyRow label="OS esperado" value={`${p.propuesto?.os_meses} meses`} />
+          <hr className="my-2 border-blue-300" />
+          <ProyRow label={`Costo total PFS (${p.propuesto?.ciclos_pfs} ciclos)`} value={fmtCOP(p.propuesto?.total_pfs)} bold />
+          <ProyRow label={`Costo total OS (${p.propuesto?.ciclos_os} ciclos)`} value={fmtCOP(p.propuesto?.total_os)} bold />
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-lg p-4 border-2 border-amber-200">
+        <div className="text-xs font-bold text-amber-900 uppercase mb-3">
+          ⚖️ Diferencial (propuesto − actual)
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <DiffBox label="Diferencia hasta progresión (PFS)" value={p.diferencial?.diferencia_pfs} />
+          <DiffBox label="Diferencia hasta fallecimiento (OS)" value={p.diferencial?.diferencia_os} />
+          <DiffBox label={`Costo por mes de PFS ganado (+${p.diferencial?.ganancia_pfs_meses ?? 0}m)`}
+            value={p.diferencial?.costo_por_mes_pfs_ganado} />
+          <DiffBox label={`Costo por mes de OS ganado (+${p.diferencial?.ganancia_os_meses ?? 0}m)`}
+            value={p.diferencial?.costo_por_mes_os_ganado} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProyRow({ label, value, bold }) {
+  return (
+    <div className="flex justify-between items-baseline gap-2 py-0.5">
+      <span className="text-slate-700 text-xs">{label}</span>
+      <span className={`text-slate-900 text-sm ${bold ? 'font-bold' : ''}`}>{value}</span>
+    </div>
+  )
+}
+
+function DiffBox({ label, value }) {
+  if (value == null) return (
+    <div className="bg-white rounded p-2 border border-amber-100">
+      <div className="text-[10px] text-slate-600 uppercase tracking-wide font-semibold">{label}</div>
+      <div className="text-slate-400 italic text-sm">No calculable</div>
+    </div>
+  )
+  const positive = value > 0
+  return (
+    <div className="bg-white rounded p-2 border border-amber-100">
+      <div className="text-[10px] text-slate-600 uppercase tracking-wide font-semibold">{label}</div>
+      <div className={`font-bold text-sm ${positive ? 'text-rose-700' : 'text-emerald-700'}`}>
+        {positive ? '+ ' : '− '}{fmtCOP(Math.abs(value))}
+      </div>
+    </div>
+  )
+}
+
+/* UI Primitives */
 function Section({ title, icon: Icon, children, highlight = false }) {
   return (
     <div className={`bg-white rounded-2xl shadow-sm border mb-6 p-6 print:shadow-none print:border print:rounded-none print:break-inside-avoid ${
-      highlight ? 'border-blue-300 ring-1 ring-blue-100' : 'border-slate-200'
+      highlight ? 'border-blue-300 ring-1 ring-blue-100' : 'border-slate-300'
     }`}>
-      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-100">
+      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-200">
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-          highlight ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+          highlight ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
         }`}>
           <Icon className="w-5 h-5" />
         </div>
-        <h2 className="text-lg font-bold text-slate-800">{title}</h2>
+        <h2 className="text-lg font-bold text-slate-900">{title}</h2>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">{children}</div>
     </div>
@@ -400,13 +503,27 @@ function KV({ label, value, full = false }) {
   const display = (value === null || value === undefined || value === '')
     ? <span className="text-slate-400 italic">No registrado</span>
     : value === 'No aplica'
-      ? <span className="text-slate-500 italic">No aplica</span>
+      ? <span className="text-slate-600 italic">No aplica</span>
       : <span className="text-slate-900 whitespace-pre-line">{value}</span>
   return (
     <div className={full ? 'md:col-span-2' : ''}>
-      <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{label}</div>
+      <div className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">{label}</div>
       <div className="text-sm">{display}</div>
     </div>
+  )
+}
+
+function Badge({ color = 'slate', children }) {
+  const colors = {
+    emerald: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+    rose:    'bg-rose-100 text-rose-800 border-rose-300',
+    blue:    'bg-blue-100 text-blue-800 border-blue-300',
+    slate:   'bg-slate-100 text-slate-700 border-slate-300',
+  }
+  return (
+    <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold border ${colors[color]}`}>
+      {children}
+    </span>
   )
 }
 
