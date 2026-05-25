@@ -1,8 +1,12 @@
 // ============================================================
-// SGICO — Script de carga de datos desde Excel a Supabase
+// SGICO — Script de carga desde Excel a Supabase (v2)
 // Archivo: scripts/import_excel.js
-// Uso: node scripts/import_excel.js ruta/al/archivo.xlsx
+// Uso:     node scripts/import_excel.js ruta/al/archivo.xlsx
 // Requiere: npm install xlsx @supabase/supabase-js dotenv
+//
+// Mapea los 67 campos de SGICO_Plantilla_v2.xlsx al schema actual de la BD.
+// Tolera vacíos: campos opcionales sin dato pasan como NULL.
+// Aborta filas con error pero sigue con las demás (resumen al final).
 // ============================================================
 
 import * as XLSX from 'xlsx'
@@ -18,59 +22,83 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 )
 
-// ── Utilidades ──────────────────────────────────────────────
+// ── Utilidades de logging ────────────────────────────────────
 
 const log  = (msg) => console.log(`\x1b[32m✓\x1b[0m ${msg}`)
 const warn = (msg) => console.warn(`\x1b[33m⚠\x1b[0m ${msg}`)
 const err  = (msg) => console.error(`\x1b[31m✗\x1b[0m ${msg}`)
+const info = (msg) => console.log(`\x1b[36mℹ\x1b[0m ${msg}`)
 
-function readSheet(wb, name) {
+// ── Lectura de hoja Excel (header en fila 1, ejemplo en fila 2, datos desde fila 3+) ──
+
+function readSheet(wb, name, { skipExampleRow = false } = {}) {
   const ws = wb.Sheets[name]
-  if (!ws) { warn(`Hoja "${name}" no encontrada`); return [] }
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
-  const headerIdx = rows.findIndex(r =>
-    r.filter(c => c !== null && c !== '').length > 2
-  )
-  if (headerIdx === -1) return []
-  const headers = rows[headerIdx].map(h => h?.toString().replace(' *','').trim())
-  return rows.slice(headerIdx + 2)
+  if (!ws) {
+    warn(`Hoja "${name}" no encontrada`)
+    return []
+  }
+  // Para CASOS_COMITE y DESENLACES: fila 1 = categoría, fila 2 = headers, fila 3 = ejemplo, fila 4+ = datos
+  // Para catálogos (SEDES/EPS/MEDICOS/GESTORES/PROTOCOLOS): fila 1 = headers, fila 2 = ejemplo, fila 3+ = datos
+  const hasCategoryRow = ['CASOS_COMITE', 'DESENLACES'].includes(name)
+  const headerRow = hasCategoryRow ? 2 : 1
+  const startDataRow = headerRow + (skipExampleRow ? 2 : 1)
+
+  const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+  if (allRows.length < headerRow) return []
+
+  const headers = allRows[headerRow - 1].map(h => h?.toString().trim())
+  const dataRows = allRows.slice(startDataRow - 1)
     .filter(r => r.some(c => c !== null && c !== ''))
-    .map(r => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? null])))
+
+  return dataRows.map(r =>
+    Object.fromEntries(headers.map((h, i) => [h, r[i] ?? null]))
+  )
 }
 
-function bool(val) {
+// ── Conversores tolerantes ───────────────────────────────────
+
+function asStr(val) {
   if (val === null || val === undefined || val === '') return null
-  if (typeof val === 'boolean') return val
-  return String(val).toUpperCase() === 'TRUE'
+  return String(val).trim() || null
 }
 
-function num(val) {
+function asInt(val) {
   if (val === null || val === '') return null
-  const n = parseFloat(String(val).replace(/,/g, ''))
+  const n = parseInt(String(val).replace(/[, ]/g, ''), 10)
   return isNaN(n) ? null : n
 }
 
-function date(val) {
-  if (!val) return null
-  if (typeof val === 'number') {
-    // Excel serial date
-    const d = XLSX.SSF.parse_date_code(val)
-    return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`
-  }
-  const s = String(val).trim()
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+function asNum(val) {
+  if (val === null || val === '') return null
+  const n = parseFloat(String(val).replace(/[, ]/g, ''))
+  return isNaN(n) ? null : n
+}
+
+function asBool(val) {
+  if (val === null || val === undefined || val === '') return null
+  if (typeof val === 'boolean') return val
+  const s = String(val).trim().toUpperCase()
+  if (s === 'TRUE' || s === 'SI' || s === 'SÍ' || s === '1') return true
+  if (s === 'FALSE' || s === 'NO' || s === '0') return false
   return null
 }
 
-async function upsert(table, rows, onConflict) {
-  if (!rows.length) { warn(`Sin datos para ${table}`); return [] }
-  const { data, error } = await supabase
-    .from(table)
-    .insert(rows)
-    .select()
-  if (error) throw new Error(`${table}: ${error.message}`)
-  log(`${table}: ${data.length} registros insertados`)
-  return data
+function asDate(val) {
+  if (!val) return null
+  // Excel serial date (número)
+  if (typeof val === 'number') {
+    const d = XLSX.SSF.parse_date_code(val)
+    return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
+  }
+  const s = String(val).trim()
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  // YYYY-MM-DDTHH... (timestamp ISO) → solo fecha
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10)
+  // dd/mm/yyyy
+  const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`
+  return null
 }
 
 // ── Catálogos lookup ────────────────────────────────────────
@@ -78,227 +106,355 @@ async function upsert(table, rows, onConflict) {
 async function buildLookup(table, keyField) {
   const { data, error } = await supabase.from(table).select(`id, ${keyField}`)
   if (error) throw new Error(`Lookup ${table}: ${error.message}`)
-  return Object.fromEntries(data.map(r => [r[keyField]?.trim()?.toLowerCase(), r.id]))
+  return Object.fromEntries(
+    data
+      .filter(r => r[keyField])
+      .map(r => [r[keyField].trim().toLowerCase(), r.id])
+  )
 }
 
-// ── Pasos de importación ────────────────────────────────────
-
-async function importSedes(wb) {
-  const rows = readSheet(wb, 'SEDES').map(r => ({
-    nombre: r.nombre?.trim(),
-    ciudad: r.ciudad?.trim() || 'Medellín',
-    activa: bool(r.activa) ?? true,
-  })).filter(r => r.nombre)
-  return upsert('sedes', rows, 'nombre')
+function lookupId(map, value, label, errors) {
+  if (!value) return null
+  const key = String(value).trim().toLowerCase()
+  const id = map[key]
+  if (!id) {
+    errors.push(`${label} no encontrado: "${value}"`)
+    return null
+  }
+  return id
 }
 
-async function importEps(wb) {
-  const rows = readSheet(wb, 'EPS').map(r => ({
-    nombre: r.nombre?.trim(),
-    codigo: r.codigo?.trim() || null,
-    activa: bool(r.activa) ?? true,
-  })).filter(r => r.nombre)
-  return upsert('eps', rows, 'nombre')
-}
+// ── Importadores de catálogos ────────────────────────────────
 
-async function importMedicos(wb, sedeLookup) {
-  const rows = readSheet(wb, 'MEDICOS').map(r => {
-    const sedeId = sedeLookup[r.sede?.trim()?.toLowerCase()]
-    if (!sedeId) warn(`Médico "${r.nombre}": sede "${r.sede}" no encontrada`)
-    return {
-      nombre: r.nombre?.trim(),
-      especialidad: r.especialidad?.trim() || null,
-      registro_medico: r.registro_medico?.trim() || null,
-      sede_id: sedeId || null,
-      activo: bool(r.activo) ?? true,
+async function importCatalog(wb, sheetName, table, mapper, conflictKey = null) {
+  const rows = readSheet(wb, sheetName, { skipExampleRow: ['MEDICOS', 'GESTORES'].includes(sheetName) })
+    .map(mapper)
+    .filter(r => r && r.nombre)
+
+  if (!rows.length) {
+    warn(`${table}: sin filas para importar`)
+    return
+  }
+
+  // upsert para no fallar si ya existen
+  let resp
+  if (conflictKey) {
+    resp = await supabase.from(table).upsert(rows, { onConflict: conflictKey, ignoreDuplicates: true })
+  } else {
+    resp = await supabase.from(table).insert(rows, { count: 'exact' })
+  }
+
+  if (resp.error) {
+    // Si es duplicado, no es fatal — solo informativo
+    if (resp.error.code === '23505') {
+      info(`${table}: algunos ya existen (skip)`)
+    } else {
+      throw new Error(`${table}: ${resp.error.message}`)
     }
-  }).filter(r => r.nombre)
-  return upsert('medicos', rows, 'nombre')
+  }
+  log(`${table}: ${rows.length} filas procesadas`)
 }
 
-async function importGestores(wb) {
-  const rows = readSheet(wb, 'GESTORES').map(r => ({
-    nombre: r.nombre?.trim(),
-    email: r.email?.trim() || null,
-    rol: r.rol?.trim() || 'gestor_seguimiento',
-    activo: bool(r.activo) ?? true,
-  })).filter(r => r.nombre)
-  return upsert('gestores', rows, 'nombre')
-}
-
-async function importProtocolos(wb) {
-  const rows = readSheet(wb, 'PROTOCOLOS').map(r => ({
-    nombre: r.nombre?.trim(),
-    cie10: r.cie10?.trim() || null,
-    diagnostico: r.diagnostico?.trim() || null,
-    linea_tratamiento: num(r.linea_tratamiento),
-    regimen_estandar: r.regimen_estandar?.trim() || null,
-    pfs_esperado_meses: num(r.pfs_esperado_meses),
-    os_esperado_meses: num(r.os_esperado_meses),
-    estudio_pivotal: r.estudio_pivotal?.trim() || null,
-    referencia: r.referencia?.trim() || null,
-    requiere_comite: bool(r.requiere_comite) ?? true,
-    activo: bool(r.activo) ?? true,
-  })).filter(r => r.nombre)
-  return upsert('protocolos', rows, 'nombre')
-}
+// ── Importador principal: CASOS_COMITE ───────────────────────
 
 async function importCasos(wb, lookups) {
-  const { sedes, eps, medicos, protocolos } = lookups
-  const rows = readSheet(wb, 'CASOS_COMITE')
-  let insertados = 0
-  let errores = 0
+  const { sedes, eps, medicos, gestores, protocolos } = lookups
+  const filas = readSheet(wb, 'CASOS_COMITE', { skipExampleRow: true })
 
-  for (const r of rows) {
+  if (!filas.length) {
+    warn('CASOS_COMITE: sin filas para importar')
+    return
+  }
+
+  info(`CASOS_COMITE: ${filas.length} filas detectadas, procesando...`)
+
+  let okCount = 0
+  let errCount = 0
+  const errores = []
+
+  for (const [idx, r] of filas.entries()) {
+    const filaNum = idx + 4 // fila Excel real (1=cat, 2=hdr, 3=ej, 4+=datos)
+    const errorsFila = []
+
     try {
-      // 1. Crear o reutilizar paciente
-      const docKey = r.documento?.toString().trim()
-      if (!docKey) { warn('Fila sin documento, omitida'); continue }
+      // ─── 1. Validar campos obligatorios ─────────────────
+      const obligatorios = {
+        tipo_documento: r.tipo_documento,
+        documento: r.documento,
+        nombre_paciente: r.nombre_paciente,
+        eps: r.eps,
+        fecha_solicitud: r.fecha_solicitud,
+        sede: r.sede,
+        medico_solicitante: r.medico_solicitante,
+        cie10: r.cie10,
+        motivo_presentacion: r.motivo_presentacion,
+      }
+      for (const [k, v] of Object.entries(obligatorios)) {
+        if (!v || String(v).trim() === '') {
+          errorsFila.push(`falta ${k}`)
+        }
+      }
+      if (errorsFila.length) {
+        throw new Error(errorsFila.join('; '))
+      }
+
+      // ─── 2. Resolver lookups ────────────────────────────
+      const sedeId    = lookupId(sedes,      r.sede,                'sede',     errorsFila)
+      const epsId     = lookupId(eps,        r.eps,                 'eps',      errorsFila)
+      const medicoId  = lookupId(medicos,    r.medico_solicitante,  'medico',   errorsFila)
+      const gestorId  = lookupId(gestores,   r.gestor,              'gestor',   [])  // no es fatal
+      const protoId   = lookupId(protocolos, r.protocolo_asociado,  'protocolo',[])  // no es fatal
+
+      if (errorsFila.length) {
+        throw new Error(errorsFila.join('; '))
+      }
+
+      // ─── 3. Upsert paciente ─────────────────────────────
+      const docKey = String(r.documento).trim()
+      const tipoDoc = asStr(r.tipo_documento) || 'CC'
 
       let pacienteId
       const { data: pacExist } = await supabase
-        .from('pacientes').select('id')
+        .from('pacientes')
+        .select('id')
         .eq('documento', docKey)
-        .eq('tipo_documento', r.tipo_documento?.trim() || 'CC')
-        .single()
+        .eq('tipo_documento', tipoDoc)
+        .maybeSingle()
 
       if (pacExist) {
         pacienteId = pacExist.id
       } else {
-        const { data: newPac, error: pacErr } = await supabase
+        const { data: nuevo, error: pErr } = await supabase
           .from('pacientes')
           .insert({
-            tipo_documento: r.tipo_documento?.trim() || 'CC',
+            tipo_documento: tipoDoc,
             documento: docKey,
-            nombre: r.nombre_paciente?.trim(),
-            genero: r.genero?.trim() || null,
-            fecha_nacimiento: date(r.fecha_nacimiento),
-            telefono1: r.telefono?.toString().trim() || null,
-            eps_id: eps[r.eps?.trim()?.toLowerCase()] || null,
-            sede_id: sedes[r.sede?.trim()?.toLowerCase()] || null,
+            nombre: asStr(r.nombre_paciente),
+            genero: asStr(r.genero),
+            fecha_nacimiento: asDate(r.fecha_nacimiento),
+            telefono1: asStr(r.telefono),
+            eps_id: epsId,
+            sede_id: sedeId,
           })
-          .select().single()
-        if (pacErr) throw new Error(`Paciente: ${pacErr.message}`)
-        pacienteId = newPac.id
+          .select('id')
+          .single()
+        if (pErr) throw new Error(`paciente: ${pErr.message}`)
+        pacienteId = nuevo.id
       }
 
-      // 2. Crear diagnóstico
-      const { data: dx, error: dxErr } = await supabase
+      // ─── 4. Crear diagnóstico ───────────────────────────
+      const { data: diag, error: dErr } = await supabase
         .from('diagnosticos')
         .insert({
           paciente_id: pacienteId,
-          cie10: r.cie10?.trim(),
-          descripcion: r.diagnostico?.trim() || null,
-          estadio: r.estadio?.trim() || null,
-          histologia: r.histologia?.trim() || null,
-          ecog: num(r.ecog),
-          metastasis_sitios: r.metastasis_sitios?.trim() || null,
-          fecha_diagnostico: date(r.fecha_solicitud),
+          cie10: asStr(r.cie10),
+          descripcion: asStr(r.diagnostico_descripcion),
+          estadio: asStr(r.estadio_clinico),
+          histologia: asStr(r.histologia),
+          ecog: asInt(r.ecog),
+          fecha_diagnostico: asDate(r.fecha_diagnostico),
         })
-        .select().single()
-      if (dxErr) throw new Error(`Diagnóstico: ${dxErr.message}`)
+        .select('id')
+        .single()
+      if (dErr) throw new Error(`diagnostico: ${dErr.message}`)
 
-      // 3. Crear caso comité
-      const { error: casoErr } = await supabase
-        .from('casos_comite')
-        .insert({
-          paciente_id: pacienteId,
-          diagnostico_id: dx.id,
-          medico_id: medicos[r.medico_solicitante?.trim()?.toLowerCase()] || null,
-          sede_id: sedes[r.sede?.trim()?.toLowerCase()] || null,
-          fecha_solicitud: date(r.fecha_solicitud),
-          tipo_comite: r.tipo_comite?.trim() || 'tumor_solido',
-          motivo: r.motivo_presentacion?.trim() || '',
-          linea_actual: num(r.linea_actual),
-          linea_propuesta: num(r.linea_propuesta),
-          molecula_propuesta: r.molecula_propuesta?.trim() || null,
-          justificacion: r.justificacion?.trim() || null,
-          tiene_invima: bool(r.tiene_invima) ?? false,
-          en_unirse: bool(r.en_unirse) ?? false,
-          protocolo_id: protocolos[r.protocolo_asociado?.trim()?.toLowerCase()] || null,
-          presentacion_obligatoria: bool(r.presentacion_obligatoria) ?? false,
-          tratamiento_previo: r.tratamiento_previo?.trim() || null,
-          molecula_previa: r.molecula_previa?.trim() || null,
-          costo_previo: num(r.costo_previo) || 0,
-          valoracion_psicosocial: bool(r.valoracion_psicosocial) ?? false,
-          fecha_presentacion: date(r.fecha_presentacion),
-          decision: r.decision?.trim() || 'pendiente',
-          molecula_aprobada: r.molecula_aprobada?.trim() || null,
-          costo_molecula_aprobada: num(r.costo_molecula_aprobada) || 0,
-          costo_post: num(r.costo_post) || 0,
-          adherente_protocolo: bool(r.adherente_protocolo),
-          motivo_no_adherencia: r.motivo_no_adherencia?.trim() || null,
-          estado: r.estado_caso?.trim() || 'activo',
-          motivo_cancelacion: r.motivo_cancelacion?.trim() || null,
-        })
-      if (casoErr) throw new Error(`Caso: ${casoErr.message}`)
-      insertados++
+      // ─── 5. Insertar caso_comite con TODOS los campos ───
+      const casoPayload = {
+        // Relacionales
+        paciente_id: pacienteId,
+        diagnostico_id: diag.id,
+        medico_id: medicoId,
+        sede_id: sedeId,
+        gestor_id: gestorId,
+        protocolo_id: protoId,
+
+        // Comité administrativo
+        fecha_solicitud: asDate(r.fecha_solicitud),
+        fecha_presentacion: asDate(r.fecha_presentacion),
+        tipo_comite: asStr(r.tipo_comite) || 'tumor_solido',
+        prioridad: asStr(r.prioridad) || 'normal',
+
+        // Diagnóstico (snapshot en caso)
+        diagnostico_descripcion: asStr(r.diagnostico_descripcion),
+        histologia: asStr(r.histologia),
+        estadio_clinico: asStr(r.estadio_clinico),
+        tnm: asStr(r.tnm),
+        fecha_diagnostico: asDate(r.fecha_diagnostico),
+        biomarcadores: asStr(r.biomarcadores),
+
+        // Estado funcional
+        ecog: asStr(r.ecog), // varchar(2) en BD, mantener como string
+        comorbilidades: asStr(r.comorbilidades),
+        alergias: asStr(r.alergias),
+        habito_tabaquico: asStr(r.habito_tabaquico),
+        habito_alcohol: asStr(r.habito_alcohol),
+        medicacion_actual: asStr(r.medicacion_actual),
+
+        // Estudios
+        estudios_imagenes: asStr(r.estudios_imagenes),
+        estudios_laboratorio: asStr(r.estudios_laboratorio),
+        estudios_patologia: asStr(r.estudios_patologia),
+        estudios_moleculares: asStr(r.estudios_moleculares),
+        fecha_ultimo_estudio: asDate(r.fecha_ultimo_estudio),
+
+        // Tratamientos previos
+        linea_actual: asInt(r.linea_actual),
+        tratamiento_previo: asStr(r.tratamiento_previo),
+        molecula_previa: asStr(r.molecula_previa),
+        costo_previo: asNum(r.costo_previo) ?? 0,
+        tratamiento_quirurgico: asStr(r.tratamiento_quirurgico),
+        tratamiento_qt: asStr(r.tratamiento_qt),
+        tratamiento_rt: asStr(r.tratamiento_rt),
+        tratamiento_dirigido: asStr(r.tratamiento_dirigido),
+        respuesta_previa: asStr(r.respuesta_previa),
+
+        // Propuesta y narrativa
+        motivo: asStr(r.motivo_presentacion),
+        linea_propuesta: asInt(r.linea_propuesta),
+        molecula_propuesta: asStr(r.molecula_propuesta),
+        tratamiento_propuesto: asStr(r.tratamiento_propuesto),
+        pregunta_comite: asStr(r.pregunta_comite),
+        justificacion_clinica: asStr(r.justificacion_clinica),
+
+        // Evidencia
+        evidencia_referencia: asStr(r.evidencia_referencia),
+        evidencia_tipo: asStr(r.evidencia_tipo),
+        evidencia_link: asStr(r.evidencia_link),
+        pfs_esperado_estudio: asNum(r.pfs_esperado_estudio),
+        os_esperado_estudio: asNum(r.os_esperado_estudio),
+
+        // Regulatorio
+        tiene_invima: asBool(r.tiene_invima) ?? false,
+        en_unirse: asBool(r.en_unirse) ?? false,
+        presentacion_obligatoria: asBool(r.presentacion_obligatoria) ?? false,
+
+        // Economía
+        costo_estimado: asNum(r.costo_estimado),
+        costo_post: asNum(r.costo_post) ?? 0,
+        costo_molecula_aprobada: asNum(r.costo_molecula_aprobada) ?? 0,
+
+        // Decisión
+        decision: asStr(r.decision) || 'pendiente',
+        molecula_aprobada: asStr(r.molecula_aprobada),
+        justificacion_decision: asStr(r.justificacion_decision),
+        adherente_protocolo: asBool(r.adherente_protocolo),
+        motivo_no_adherencia: asStr(r.motivo_no_adherencia),
+        valoracion_psicosocial: asBool(r.valoracion_psicosocial) ?? false,
+
+        // Cierre
+        estado: asStr(r.estado_caso) || 'activo',
+        motivo_cancelacion: asStr(r.motivo_cancelacion),
+      }
+
+      // Limpiar nulls explícitos (Supabase los acepta, pero menos ruido)
+      const { error: cErr } = await supabase.from('casos_comite').insert(casoPayload)
+      if (cErr) throw new Error(`caso: ${cErr.message}`)
+
+      okCount++
     } catch (e) {
-      err(`Caso doc=${r.documento}: ${e.message}`)
-      errores++
+      errCount++
+      const msg = `Fila ${filaNum} (doc=${r.documento || '?'}): ${e.message}`
+      errores.push(msg)
+      err(msg)
     }
   }
-  log(`casos_comite: ${insertados} insertados, ${errores} errores`)
+
+  console.log('')
+  log(`CASOS_COMITE: ${okCount} insertados, ${errCount} errores`)
+  if (errores.length > 0 && errores.length <= 10) {
+    console.log('\nResumen de errores:')
+    errores.forEach(e => console.log(`  • ${e}`))
+  } else if (errores.length > 10) {
+    console.log(`\n(${errores.length} errores, mostrando primeros 10)`)
+    errores.slice(0, 10).forEach(e => console.log(`  • ${e}`))
+  }
 }
 
+// ── Importador: DESENLACES ───────────────────────────────────
+
 async function importDesenlaces(wb, lookups) {
-  const { pacientes, protocolos } = lookups
-  const rows = readSheet(wb, 'DESENLACES')
-  let insertados = 0
-  let errores = 0
+  const { protocolos } = lookups
+  const filas = readSheet(wb, 'DESENLACES', { skipExampleRow: true })
 
-  for (const r of rows) {
+  if (!filas.length) {
+    info('DESENLACES: sin filas para importar')
+    return
+  }
+
+  info(`DESENLACES: ${filas.length} filas detectadas, procesando...`)
+
+  let okCount = 0
+  let errCount = 0
+
+  for (const [idx, r] of filas.entries()) {
+    const filaNum = idx + 4
     try {
-      const docKey = r.documento?.toString().trim()
-      if (!docKey) continue
+      const docKey = String(r.documento || '').trim()
+      if (!docKey) {
+        warn(`Fila ${filaNum}: sin documento, omitida`)
+        continue
+      }
+      const tipoDoc = asStr(r.tipo_documento) || 'CC'
 
-      // Buscar caso asociado
-      const pacId = pacientes[docKey]
-      if (!pacId) { warn(`Desenlace doc=${docKey}: paciente no encontrado`); continue }
+      // Buscar paciente
+      const { data: pac } = await supabase
+        .from('pacientes')
+        .select('id')
+        .eq('documento', docKey)
+        .eq('tipo_documento', tipoDoc)
+        .maybeSingle()
 
+      if (!pac) {
+        throw new Error(`paciente doc=${docKey} no encontrado`)
+      }
+
+      // Buscar caso más reciente del paciente
       const { data: caso } = await supabase
         .from('casos_comite')
         .select('id')
-        .eq('paciente_id', pacId)
-        .order('created_at', { ascending: false })
-        .limit(1).single()
+        .eq('paciente_id', pac.id)
+        .order('fecha_solicitud', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
       const { error: dErr } = await supabase.from('desenlaces').insert({
-        paciente_id: pacId,
+        paciente_id: pac.id,
         caso_id: caso?.id || null,
-        protocolo_id: protocolos[r.protocolo_asociado?.trim()?.toLowerCase()] || null,
-        mejor_respuesta: r.mejor_respuesta?.trim() || null,
-        fecha_mejor_respuesta: date(r.fecha_mejor_respuesta),
-        fecha_inicio_tx: date(r.fecha_inicio_tratamiento),
-        fecha_progresion: date(r.fecha_progresion),
-        pfs_meses: num(r.pfs_meses),
-        evento_pfs: bool(r.evento_pfs) ?? false,
-        fecha_muerte: date(r.fecha_muerte),
-        os_meses: num(r.os_meses),
-        evento_os: bool(r.evento_os) ?? false,
-        causa_muerte: r.causa_muerte?.trim() || null,
-        toxicidad_max: num(r.toxicidad_grado_max),
-        toxicidad_descripcion: r.toxicidad_descripcion?.trim() || null,
-        suspension_toxicidad: bool(r.suspension_por_toxicidad) ?? false,
-        pfs_esperado: num(r.pfs_esperado_estudio),
-        os_esperado: num(r.os_esperado_estudio),
-        avac_estimado: num(r.avac_estimado),
-        costo_total: num(r.costo_total_tratamiento),
-        costo_avac: num(r.costo_por_avac),
-        estado_vital: r.estado_vital?.trim() || 'vivo',
-        fecha_ultimo_contacto: date(r.fecha_ultimo_contacto),
+        protocolo_id: lookupId(protocolos, r.protocolo_asociado, 'protocolo', []),
+        mejor_respuesta: asStr(r.mejor_respuesta),
+        fecha_mejor_respuesta: asDate(r.fecha_mejor_respuesta),
+        fecha_inicio_tx: asDate(r.fecha_inicio_tx),
+        fecha_progresion: asDate(r.fecha_progresion),
+        pfs_meses: asNum(r.pfs_meses),
+        evento_pfs: asBool(r.evento_pfs) ?? false,
+        fecha_muerte: asDate(r.fecha_muerte),
+        os_meses: asNum(r.os_meses),
+        evento_os: asBool(r.evento_os) ?? false,
+        causa_muerte: asStr(r.causa_muerte),
+        toxicidad_max: asInt(r.toxicidad_max),
+        toxicidad_descripcion: asStr(r.toxicidad_descripcion),
+        suspension_toxicidad: asBool(r.suspension_toxicidad) ?? false,
+        pfs_esperado: asNum(r.pfs_esperado),
+        os_esperado: asNum(r.os_esperado),
+        avac_estimado: asNum(r.avac_estimado),
+        costo_total: asNum(r.costo_total),
+        costo_avac: asNum(r.costo_avac),
+        estado_vital: asStr(r.estado_vital) || 'vivo',
+        fecha_ultimo_contacto: asDate(r.fecha_ultimo_contacto),
       })
       if (dErr) throw new Error(dErr.message)
-      insertados++
+      okCount++
     } catch (e) {
-      err(`Desenlace doc=${r.documento}: ${e.message}`)
-      errores++
+      errCount++
+      err(`Desenlace fila ${filaNum}: ${e.message}`)
     }
   }
-  log(`desenlaces: ${insertados} insertados, ${errores} errores`)
+
+  console.log('')
+  log(`DESENLACES: ${okCount} insertados, ${errCount} errores`)
 }
 
-// ── Main ────────────────────────────────────────────────────
+// ── Main ─────────────────────────────────────────────────────
 
 async function main() {
   const filePath = process.argv[2]
@@ -308,36 +464,89 @@ async function main() {
   }
 
   console.log('\n📂 Leyendo archivo:', filePath)
-  const wb = XLSX.read(readFileSync(resolve(filePath)), { type: 'buffer', cellDates: false })
-  console.log('   Hojas encontradas:', wb.SheetNames.join(', '))
-
+  const wb = XLSX.read(readFileSync(resolve(filePath)), {
+    type: 'buffer',
+    cellDates: false,
+  })
+  console.log('   Hojas:', wb.SheetNames.join(', '))
   console.log('\n🚀 Iniciando importación...\n')
 
   try {
-    // 1. Catálogos base
-    await importSedes(wb)
-    await importEps(wb)
+    // ─── 1. Catálogos ──────────────────────────────────
+    await importCatalog(wb, 'SEDES', 'sedes',
+      r => ({
+        nombre: asStr(r.nombre),
+        ciudad: asStr(r.ciudad) || 'Cali',
+        activa: asBool(r.activa) ?? true,
+      })
+    )
 
-    // 2. Construir lookups
-    const sedes     = await buildLookup('sedes', 'nombre')
-    const eps       = await buildLookup('eps', 'nombre')
+    await importCatalog(wb, 'EPS', 'eps',
+      r => ({
+        nombre: asStr(r.nombre),
+        codigo: asStr(r.codigo),
+        activa: asBool(r.activa) ?? true,
+      })
+    )
 
-    await importMedicos(wb, sedes)
-    await importGestores(wb)
-    await importProtocolos(wb)
+    // Lookups parciales para médicos
+    const sedesPartial = await buildLookup('sedes', 'nombre')
 
-    const medicos   = await buildLookup('medicos', 'nombre')
-    const protocolos = await buildLookup('protocolos', 'nombre')
+    await importCatalog(wb, 'MEDICOS', 'medicos',
+      r => ({
+        nombre: asStr(r.nombre),
+        especialidad: asStr(r.especialidad),
+        registro_medico: asStr(r.registro_medico),
+        sede_id: lookupId(sedesPartial, r.sede, 'sede', []),
+        activo: asBool(r.activo) ?? true,
+      })
+    )
 
-    // 3. Casos
-    await importCasos(wb, { sedes, eps, medicos, protocolos })
+    await importCatalog(wb, 'GESTORES', 'gestores',
+      r => ({
+        nombre: asStr(r.nombre),
+        email: asStr(r.email),
+        rol: asStr(r.rol) || 'gestor_seguimiento',
+        activo: asBool(r.activo) ?? true,
+      })
+    )
 
-    // 4. Desenlaces (requiere pacientes ya insertados)
-    const { data: pacData } = await supabase.from('pacientes').select('id, documento')
-    const pacientes = Object.fromEntries(pacData.map(p => [p.documento, p.id]))
-    await importDesenlaces(wb, { pacientes, protocolos })
+    await importCatalog(wb, 'PROTOCOLOS', 'protocolos',
+      r => ({
+        nombre: asStr(r.nombre),
+        cie10: asStr(r.cie10),
+        diagnostico: asStr(r.diagnostico),
+        linea_tratamiento: asInt(r.linea_tratamiento),
+        regimen_estandar: asStr(r.regimen_estandar),
+        pfs_esperado_meses: asNum(r.pfs_esperado_meses),
+        os_esperado_meses: asNum(r.os_esperado_meses),
+        estudio_pivotal: asStr(r.estudio_pivotal),
+        referencia: asStr(r.referencia),
+        requiere_comite: asBool(r.requiere_comite) ?? true,
+        activo: asBool(r.activo) ?? true,
+      })
+    )
 
-    console.log('\n✅ Importación completada exitosamente\n')
+    // ─── 2. Lookups completos ──────────────────────────
+    info('Construyendo lookups...')
+    const lookups = {
+      sedes:      await buildLookup('sedes', 'nombre'),
+      eps:        await buildLookup('eps', 'nombre'),
+      medicos:    await buildLookup('medicos', 'nombre'),
+      gestores:   await buildLookup('gestores', 'nombre'),
+      protocolos: await buildLookup('protocolos', 'nombre'),
+    }
+    log(`Lookups: sedes=${Object.keys(lookups.sedes).length}, eps=${Object.keys(lookups.eps).length}, medicos=${Object.keys(lookups.medicos).length}, gestores=${Object.keys(lookups.gestores).length}, protocolos=${Object.keys(lookups.protocolos).length}`)
+
+    // ─── 3. Casos ──────────────────────────────────────
+    console.log('')
+    await importCasos(wb, lookups)
+
+    // ─── 4. Desenlaces ────────────────────────────────
+    console.log('')
+    await importDesenlaces(wb, lookups)
+
+    console.log('\n✅ Importación completada\n')
   } catch (e) {
     err(`Error fatal: ${e.message}`)
     process.exit(1)
