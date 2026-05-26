@@ -164,24 +164,32 @@ export default function PresentacionComite() {
 
   const validateStep = (idx) => {
     const errs = {}
+    const today = new Date().toISOString().split('T')[0]
     const req = (f) => {
       const v = data[f]
       if (v === '' || v === null || v === undefined) errs[f] = 'Requerido'
+    }
+    const noFuture = (f) => {
+      const v = data[f]
+      if (v && v !== NA && v > today) errs[f] = 'No puede ser futura'
     }
 
     switch (idx) {
       case 0:
         req('sede_id'); req('eps_id'); req('medico_id'); req('fecha_solicitud')
         req('tipo_comite')
+        noFuture('fecha_solicitud')
         break
       case 1:
         req('documento'); req('tipo_documento'); req('nombre')
         req('fecha_nacimiento'); req('genero')
+        noFuture('fecha_nacimiento')
         break
       case 2:
         ;['cie10','diagnostico_descripcion','histologia','estadio_clinico',
           'tnm_t','tnm_n','tnm_m','fecha_diagnostico','biomarcadores']
           .forEach(f => req(f))
+        noFuture('fecha_diagnostico')
         break
       case 3:
         ;['ecog','comorbilidades','alergias','habito_tabaquico',
@@ -190,6 +198,7 @@ export default function PresentacionComite() {
       case 4:
         ;['estudios_imagenes','estudios_laboratorio','estudios_patologia',
           'estudios_moleculares','fecha_ultimo_estudio'].forEach(f => req(f))
+        noFuture('fecha_ultimo_estudio')
         break
       case 5:
         // Línea actual y tratamiento actual son requeridos
@@ -216,21 +225,33 @@ export default function PresentacionComite() {
         break
     }
     setErrors(errs)
-    return Object.keys(errs).length === 0
+    return errs
   }
 
+  const stepIsValid = (errs) => Object.keys(errs).length === 0
+  const hasFutureDateError = (errs) =>
+    Object.values(errs).some(v => v === 'No puede ser futura')
+
   const next = () => {
-    if (!validateStep(step)) {
-      toast.error('Completa los campos requeridos')
+    const errs = validateStep(step)
+    if (!stepIsValid(errs)) {
+      toast.error(hasFutureDateError(errs)
+        ? 'La fecha no puede ser futura'
+        : 'Completa los campos requeridos')
       return
     }
     setStep(s => Math.min(s + 1, STEPS.length - 1))
   }
   const back = () => setStep(s => Math.max(s - 1, 0))
   const goTo = (idx) => {
-    if (idx > step && !validateStep(step)) {
-      toast.error('Completa el paso actual primero')
-      return
+    if (idx > step) {
+      const errs = validateStep(step)
+      if (!stepIsValid(errs)) {
+        toast.error(hasFutureDateError(errs)
+          ? 'La fecha no puede ser futura'
+          : 'Completa el paso actual primero')
+        return
+      }
     }
     setStep(idx)
   }
@@ -246,9 +267,12 @@ export default function PresentacionComite() {
 
   const presentar = async () => {
     for (let i = 0; i < STEPS.length; i++) {
-      if (!validateStep(i)) {
+      const errs = validateStep(i)
+      if (!stepIsValid(errs)) {
         setStep(i)
-        toast.error(`Faltan datos en: ${STEPS[i].label}`)
+        toast.error(hasFutureDateError(errs)
+          ? 'La fecha no puede ser futura'
+          : `Faltan datos en: ${STEPS[i].label}`)
         return
       }
     }
@@ -687,6 +711,7 @@ function StepAdmin({ data, update, errors, sedes, eps, medicos, gestores }) {
       </Field>
       <Field label="Fecha de solicitud" required error={errors.fecha_solicitud}>
         <Input type="date" value={data.fecha_solicitud}
+          max={new Date().toISOString().split('T')[0]}
           onChange={v => update('fecha_solicitud', v)} error={errors.fecha_solicitud} />
       </Field>
     </Section>
@@ -717,6 +742,7 @@ function StepDemograficos({ data, update, errors }) {
       </Field>
       <Field label="Fecha de nacimiento" required error={errors.fecha_nacimiento}>
         <Input type="date" value={data.fecha_nacimiento}
+          max={new Date().toISOString().split('T')[0]}
           onChange={v => update('fecha_nacimiento', v)} error={errors.fecha_nacimiento} />
       </Field>
       <Field label="Género" required error={errors.genero}>
@@ -745,6 +771,7 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
       <Field label="Fecha del diagnóstico" required error={errors.fecha_diagnostico}
         naValue={data.fecha_diagnostico === NA} onToggleNA={() => toggleNA('fecha_diagnostico')}>
         <Input type="date" value={data.fecha_diagnostico}
+          max={new Date().toISOString().split('T')[0]}
           onChange={v => update('fecha_diagnostico', v)} error={errors.fecha_diagnostico} />
       </Field>
       <Field label="Descripción del diagnóstico" required full
@@ -882,6 +909,7 @@ function StepEstudios({ data, update, errors, toggleNA }) {
       <Field label="Fecha del último estudio" required error={errors.fecha_ultimo_estudio}
         naValue={data.fecha_ultimo_estudio === NA} onToggleNA={() => toggleNA('fecha_ultimo_estudio')}>
         <Input type="date" value={data.fecha_ultimo_estudio}
+          max={new Date().toISOString().split('T')[0]}
           onChange={v => update('fecha_ultimo_estudio', v)} error={errors.fecha_ultimo_estudio} />
       </Field>
     </Section>

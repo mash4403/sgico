@@ -125,11 +125,29 @@ export default function Seguimientos() {
     const f = formData[segId]
     if (!f) return
     const seg = seguimientos.find(s => s.id === segId)
+    const today = new Date().toISOString().split('T')[0]
+
+    const dateFields = seg.tipo === 'post_comite'
+      ? [
+          ['fecha_primera_consulta', 'La fecha de primera consulta no puede ser futura'],
+          ['fecha_inicio_tratamiento', 'La fecha de inicio de tratamiento no puede ser futura'],
+        ]
+      : [
+          ['fecha_progresion', 'La fecha de progresión no puede ser futura'],
+          ['fecha_muerte', 'La fecha de muerte no puede ser futura'],
+          ['fecha_ultimo_contacto', 'La fecha de último contacto no puede ser futura'],
+        ]
+    for (const [field, msg] of dateFields) {
+      if (f[field] && f[field] > today) {
+        toast.error(msg)
+        return
+      }
+    }
 
     try {
       const updateData = {
         estado: 'realizado',
-        fecha_realizada: new Date().toISOString().split('T')[0],
+        fecha_realizada: today,
         gestor_id: f.gestor_id || null,
         observaciones: f.observaciones || null,
       }
@@ -314,11 +332,13 @@ export default function Seguimientos() {
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Fecha primera consulta</label>
                           <input type="date" value={formData[s.id]?.fecha_primera_consulta || ''}
+                            max={new Date().toISOString().split('T')[0]}
                             onChange={e => updateField(s.id, 'fecha_primera_consulta', e.target.value)} />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Fecha inicio tratamiento</label>
                           <input type="date" value={formData[s.id]?.fecha_inicio_tratamiento || ''}
+                            max={new Date().toISOString().split('T')[0]}
                             onChange={e => updateField(s.id, 'fecha_inicio_tratamiento', e.target.value)} />
                         </div>
                         {formData[s.id]?.decision_ejecutada === false && (
@@ -409,6 +429,7 @@ export default function Seguimientos() {
                             <div>
                               <label className="block text-xs text-gray-400 mb-1">Fecha progresión</label>
                               <input type="date" value={formData[s.id]?.fecha_progresion || ''}
+                                max={new Date().toISOString().split('T')[0]}
                                 onChange={e => updateField(s.id, 'fecha_progresion', e.target.value)} />
                             </div>
                             <div>
@@ -428,6 +449,7 @@ export default function Seguimientos() {
                             <div>
                               <label className="block text-xs text-gray-400 mb-1">Fecha de muerte</label>
                               <input type="date" value={formData[s.id]?.fecha_muerte || ''}
+                                max={new Date().toISOString().split('T')[0]}
                                 onChange={e => updateField(s.id, 'fecha_muerte', e.target.value)} />
                             </div>
                             <div>
@@ -487,6 +509,7 @@ export default function Seguimientos() {
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Fecha último contacto</label>
                           <input type="date" value={formData[s.id]?.fecha_ultimo_contacto || ''}
+                            max={new Date().toISOString().split('T')[0]}
                             onChange={e => updateField(s.id, 'fecha_ultimo_contacto', e.target.value)} />
                         </div>
 

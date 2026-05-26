@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/miguel/APP_PROPIAS/sgico diff --stat)",
+      "Bash(git -C /Users/miguel/APP_PROPIAS/sgico diff src/pages/Casos.jsx src/pages/PresentacionComite.jsx src/pages/Seguimientos.jsx)"
+    ]
+  }
+}

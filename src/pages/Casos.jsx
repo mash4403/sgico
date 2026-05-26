@@ -64,6 +64,11 @@ export default function Casos() {
   const guardarDecision = async (casoId) => {
     const d = editDecision[casoId]
     if (!d) return
+    const today = new Date().toISOString().split('T')[0]
+    if (d.fecha_presentacion && d.fecha_presentacion > today) {
+      toast.error('La fecha de presentación no puede ser futura')
+      return
+    }
     const { error } = await supabase.from('casos_comite')
       .update({
         decision: d.decision,
@@ -72,7 +77,7 @@ export default function Casos() {
         adherente_protocolo: d.adherente_protocolo,
         costo_molecula_aprobada: parseFloat(d.costo_molecula_aprobada) || 0,
         costo_post: parseFloat(d.costo_post) || 0,
-        fecha_presentacion: d.fecha_presentacion || new Date().toISOString().split('T')[0],
+        fecha_presentacion: d.fecha_presentacion || today,
       })
       .eq('id', casoId)
     
@@ -189,6 +194,7 @@ export default function Casos() {
                           <div>
                             <label className="block text-xs text-gray-400 mb-1">Fecha presentación</label>
                             <input type="date"
+                              max={new Date().toISOString().split('T')[0]}
                               value={editDecision[c.id]?.fecha_presentacion || c.fecha_presentacion || ''}
                               onChange={e => setEditDecision({
                                 ...editDecision,
