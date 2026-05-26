@@ -116,18 +116,16 @@ export default function CasoDetalle() {
   const imprimir = () => window.print()
 
   const descargarAdjunto = async (path, nombre) => {
-    try {
-      const { data, error } = await supabase.storage
-        .from('adjuntos').createSignedUrl(path, 60)
-      if (error) throw error
-      const a = document.createElement('a')
-      a.href = data.signedUrl
-      a.download = nombre
-      a.click()
-    } catch (e) {
-      toast.error(`No se pudo descargar: ${e.message}`)
-    }
+  try {
+    const { data, error } = await supabase.storage
+      .from('adjuntos').createSignedUrl(path, 60)
+    if (error) throw error
+    // Abrir en nueva pestaña — preserva la app, no más 404 al volver
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+  } catch (e) {
+    toast.error(`No se pudo abrir el archivo: ${e.message}`)
   }
+}
 
   if (loading) {
     return (
@@ -315,7 +313,7 @@ export default function CasoDetalle() {
                   <span className="text-sm text-slate-800 truncate">{f.name}</span>
                   <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
                 </div>
-                <Download className="w-4 h-4 text-blue-600 shrink-0 ml-2" />
+                <FileText className="w-4 h-4 text-blue-600 shrink-0 ml-2" title="Abrir en nueva pestaña" />
               </button>
             ))}
           </div>
