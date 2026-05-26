@@ -144,6 +144,10 @@ export default function CasoDetalle() {
   const puedeAbrirComite = caso.decision === 'pendiente' || caso.decision === 'pendiente_info'
   const telefono = caso.paciente?.telefono1 || caso.paciente?.telefono2
 
+  // Datos del paciente actual: tratamiento_qt en BD = quimioterapia + líneas previas en el form nuevo
+  const tratamientoActualMolecula = caso.molecula_previa
+  const quimioYLineasPrevias      = caso.tratamiento_qt
+
   return (
     <div className="max-w-5xl mx-auto p-4 lg:p-6 print:p-0 print:max-w-full">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 print:hidden">
@@ -250,11 +254,11 @@ export default function CasoDetalle() {
         <KV label="Fecha último estudio"  value={formatDate(caso.fecha_ultimo_estudio)} />
       </Section>
 
-      <Section title="Tratamientos previos" icon={Pill}>
+      <Section title="Tratamientos previos y actual" icon={Pill}>
         <KV label="Línea actual"        value={caso.linea_actual != null ? `Línea ${caso.linea_actual}` : null} />
-        <KV label="Molécula previa"     value={caso.molecula_previa} />
+        <KV label="Tratamiento actual"  value={tratamientoActualMolecula} />
+        <KV label="Quimioterapia y líneas previas" value={quimioYLineasPrevias} full />
         <KV label="Quirúrgico"          value={caso.tratamiento_quirurgico} full />
-        <KV label="Quimioterapia"       value={caso.tratamiento_qt} full />
         <KV label="Radioterapia"        value={caso.tratamiento_rt} full />
         <KV label="Terapia dirigida"    value={caso.tratamiento_dirigido} full />
         <KV label="Respuesta previa"    value={caso.respuesta_previa} full />
@@ -280,32 +284,22 @@ export default function CasoDetalle() {
       <Section title="Pregunta al comité" icon={MessageSquareQuote} highlight>
         <KV label="Pregunta específica"  value={caso.pregunta_comite || caso.motivo} full />
         <KV label="Línea propuesta"      value={caso.linea_propuesta != null ? `Línea ${caso.linea_propuesta}` : null} />
-        <div /> {/* spacer */}
+        <div />
         <KV label="Tratamiento propuesto" value={caso.tratamiento_propuesto || caso.molecula_propuesta} full />
         <KV label="Justificación clínica" value={caso.justificacion_clinica || caso.justificacion} full />
       </Section>
 
-      {/* PROYECCIÓN DE COSTOS */}
       {caso.proyeccion_costos && (
-        <ProyeccionCostosSection proyeccion={caso.proyeccion_costos} caso={caso} />
+        <ProyeccionCostosSection proyeccion={caso.proyeccion_costos} />
       )}
 
-      {/* REGULATORIO */}
       {(caso.tiene_invima != null || caso.en_unirse != null) && (
         <Section title="Estatus regulatorio" icon={ShieldCheck}>
           <div className="md:col-span-2 flex flex-wrap gap-3">
-            {caso.tiene_invima === true && (
-              <Badge color="emerald">✅ INVIMA vigente</Badge>
-            )}
-            {caso.tiene_invima === false && (
-              <Badge color="rose">⚠️ Sin INVIMA</Badge>
-            )}
-            {caso.en_unirse === true && (
-              <Badge color="blue">📋 En base UNIRSE</Badge>
-            )}
-            {caso.en_unirse === false && (
-              <Badge color="slate">📋 No está en UNIRSE</Badge>
-            )}
+            {caso.tiene_invima === true && <Badge color="emerald">✅ INVIMA vigente</Badge>}
+            {caso.tiene_invima === false && <Badge color="rose">⚠️ Sin INVIMA</Badge>}
+            {caso.en_unirse === true && <Badge color="blue">📋 En base UNIRSE</Badge>}
+            {caso.en_unirse === false && <Badge color="slate">📋 No está en UNIRSE</Badge>}
           </div>
         </Section>
       )}
@@ -399,40 +393,72 @@ export default function CasoDetalle() {
 }
 
 /* ──────────────────────────────────────────────────────────────
-   Sección de proyección de costos
+   Sección de proyección — solo PFS para cálculo, OS atenuado
    ────────────────────────────────────────────────────────────── */
-function ProyeccionCostosSection({ proyeccion, caso }) {
+function ProyeccionCostosSection({ proyeccion }) {
   const p = proyeccion
+  const naive = p.diferencial?.es_naive
+
   return (
     <div className="bg-white rounded-2xl shadow-sm border-2 border-blue-300 mb-6 p-6 print:shadow-none print:border print:rounded-none print:break-inside-avoid">
       <div className="flex items-center gap-3 mb-4 pb-3 border-b border-blue-200">
         <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
           <DollarSign className="w-5 h-5" />
         </div>
-        <h2 className="text-lg font-bold text-slate-900">Proyección de impacto económico</h2>
+        <div className="flex-1">
+          <h2 className="text-lg font-bold text-slate-900">Proyección de impacto económico</h2>
+          <p className="text-xs text-slate-600">Cálculo basado en PFS · OS mostrado solo como referencia clínica</p>
+        </div>
+        <span className="text-[10px] font-semibold text-blue-700 bg-blue-100 px-2 py-1 rounded shrink-0">
+          PFS
+        </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* ACTUAL */}
         <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
           <div className="text-xs font-bold text-slate-700 uppercase mb-3">🩺 Tratamiento actual</div>
-          <ProyRow label="Costo por ciclo" value={fmtCOP(p.actual?.costo_ciclo)} />
-          <ProyRow label="Duración del ciclo" value={`${p.actual?.duracion_dias} días`} />
-          <ProyRow label="PFS estimado" value={`${p.actual?.pfs_meses} meses`} />
-          <ProyRow label="OS estimado" value={`${p.actual?.os_meses} meses`} />
-          <hr className="my-2 border-slate-300" />
-          <ProyRow label={`Costo total PFS (${p.actual?.ciclos_pfs} ciclos)`} value={fmtCOP(p.actual?.total_pfs)} bold />
-          <ProyRow label={`Costo total OS (${p.actual?.ciclos_os} ciclos)`} value={fmtCOP(p.actual?.total_os)} bold />
+          {p.actual?.pfs_meses == null ? (
+            <div className="text-sm text-slate-500 italic py-3">
+              Paciente naive (PFS marcado como "No aplica"). Sin cálculo de costo previo.
+            </div>
+          ) : (
+            <>
+              <ProyRow label="Costo por ciclo" value={fmtCOP(p.actual?.costo_ciclo)} />
+              <ProyRow label="Duración del ciclo" value={`${p.actual?.duracion_dias} días`} />
+              <ProyRow label="PFS estimado" value={`${p.actual?.pfs_meses} meses`} />
+              <hr className="my-2 border-slate-300" />
+              <ProyRow label={`Costo total PFS (${p.actual?.ciclos_pfs} ciclos)`}
+                value={fmtCOP(p.actual?.total_pfs)} bold />
+              {p.actual?.os_meses != null && (
+                <div className="opacity-50 mt-2 pt-2 border-t border-slate-200">
+                  <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Referencia OS</div>
+                  <ProyRow label={`OS estimado`} value={`${p.actual.os_meses} meses`} small />
+                  <ProyRow label={`Costo total OS (${p.actual.ciclos_os} ciclos)`}
+                    value={fmtCOP(p.actual.total_os)} small />
+                </div>
+              )}
+            </>
+          )}
         </div>
 
+        {/* PROPUESTO */}
         <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
           <div className="text-xs font-bold text-blue-800 uppercase mb-3">💊 Tratamiento propuesto</div>
           <ProyRow label="Costo por ciclo" value={fmtCOP(p.propuesto?.costo_ciclo)} />
           <ProyRow label="Duración del ciclo" value={`${p.propuesto?.duracion_dias} días`} />
           <ProyRow label="PFS esperado" value={`${p.propuesto?.pfs_meses} meses`} />
-          <ProyRow label="OS esperado" value={`${p.propuesto?.os_meses} meses`} />
           <hr className="my-2 border-blue-300" />
-          <ProyRow label={`Costo total PFS (${p.propuesto?.ciclos_pfs} ciclos)`} value={fmtCOP(p.propuesto?.total_pfs)} bold />
-          <ProyRow label={`Costo total OS (${p.propuesto?.ciclos_os} ciclos)`} value={fmtCOP(p.propuesto?.total_os)} bold />
+          <ProyRow label={`Costo total PFS (${p.propuesto?.ciclos_pfs} ciclos)`}
+            value={fmtCOP(p.propuesto?.total_pfs)} bold />
+          {p.propuesto?.os_meses != null && (
+            <div className="opacity-50 mt-2 pt-2 border-t border-blue-200">
+              <div className="text-[10px] uppercase font-semibold text-blue-700 mb-1">Referencia OS</div>
+              <ProyRow label={`OS esperado`} value={`${p.propuesto.os_meses} meses`} small />
+              <ProyRow label={`Costo total OS (${p.propuesto.ciclos_os} ciclos)`}
+                value={fmtCOP(p.propuesto.total_os)} small />
+            </div>
+          )}
         </div>
       </div>
 
@@ -440,24 +466,27 @@ function ProyeccionCostosSection({ proyeccion, caso }) {
         <div className="text-xs font-bold text-amber-900 uppercase mb-3">
           ⚖️ Diferencial (propuesto − actual)
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <DiffBox label="Diferencia hasta progresión (PFS)" value={p.diferencial?.diferencia_pfs} />
-          <DiffBox label="Diferencia hasta fallecimiento (OS)" value={p.diferencial?.diferencia_os} />
-          <DiffBox label={`Costo por mes de PFS ganado (+${p.diferencial?.ganancia_pfs_meses ?? 0}m)`}
-            value={p.diferencial?.costo_por_mes_pfs_ganado} />
-          <DiffBox label={`Costo por mes de OS ganado (+${p.diferencial?.ganancia_os_meses ?? 0}m)`}
-            value={p.diferencial?.costo_por_mes_os_ganado} />
-        </div>
+        {naive ? (
+          <div className="text-sm text-slate-700 italic">
+            Paciente naive (sin tratamiento previo). Se proyecta el costo total del propuesto sin base de comparación.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <DiffBox label="Diferencia hasta progresión (PFS)" value={p.diferencial?.diferencia_pfs} />
+            <DiffBox label={`Costo por mes de PFS ganado (+${p.diferencial?.ganancia_pfs_meses ?? 0}m)`}
+              value={p.diferencial?.costo_por_mes_pfs_ganado} />
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-function ProyRow({ label, value, bold }) {
+function ProyRow({ label, value, bold, small }) {
   return (
     <div className="flex justify-between items-baseline gap-2 py-0.5">
-      <span className="text-slate-700 text-xs">{label}</span>
-      <span className={`text-slate-900 text-sm ${bold ? 'font-bold' : ''}`}>{value}</span>
+      <span className={`text-slate-700 ${small ? 'text-[11px]' : 'text-xs'}`}>{label}</span>
+      <span className={`text-slate-900 ${small ? 'text-[11px]' : 'text-sm'} ${bold ? 'font-bold' : ''}`}>{value}</span>
     </div>
   )
 }
