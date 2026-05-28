@@ -69,14 +69,15 @@ export default function Casos() {
       toast.error('La fecha de presentación no puede ser futura')
       return
     }
+    const costoAprobado = parseFloat(d.costo_aprobado) || 0
     const { error } = await supabase.from('casos_comite')
       .update({
         decision: d.decision,
         molecula_aprobada: d.molecula_aprobada,
         justificacion_decision: d.justificacion_decision,
         adherente_protocolo: d.adherente_protocolo,
-        costo_molecula_aprobada: parseFloat(d.costo_molecula_aprobada) || 0,
-        costo_post: parseFloat(d.costo_post) || 0,
+        costo_molecula_aprobada: costoAprobado,
+        costo_post: costoAprobado,
         fecha_presentacion: d.fecha_presentacion || today,
       })
       .eq('id', casoId)
@@ -212,22 +213,23 @@ export default function Casos() {
                               })} />
                           </div>
                           <div>
-                            <label className="block text-xs text-gray-400 mb-1">Costo molécula (COP)</label>
+                            <label className="block text-xs text-gray-400 mb-1">Costo tratamiento aprobado (COP)</label>
                             <input type="number"
-                              value={editDecision[c.id]?.costo_molecula_aprobada || c.costo_molecula_aprobada || ''}
+                              value={editDecision[c.id]?.costo_aprobado ?? c.costo_molecula_aprobada ?? c.costo_post ?? ''}
                               onChange={e => setEditDecision({
                                 ...editDecision,
-                                [c.id]: {...(editDecision[c.id] || {}), costo_molecula_aprobada: e.target.value}
+                                [c.id]: {...(editDecision[c.id] || {}), costo_aprobado: e.target.value}
                               })} />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Costo total post (COP)</label>
-                            <input type="number"
-                              value={editDecision[c.id]?.costo_post || c.costo_post || ''}
-                              onChange={e => setEditDecision({
-                                ...editDecision,
-                                [c.id]: {...(editDecision[c.id] || {}), costo_post: e.target.value}
-                              })} />
+                            {(() => {
+                              const raw = editDecision[c.id]?.costo_aprobado ?? c.costo_molecula_aprobada ?? c.costo_post
+                              const aprobado = parseFloat(raw)
+                              const previo = parseFloat(c.costo_previo)
+                              if (!Number.isFinite(aprobado) || !Number.isFinite(previo)) return null
+                              const diff = previo - aprobado
+                              if (diff > 0) return <p className="text-xs text-green-400 mt-1">Ahorro: {formatCOP(diff)}</p>
+                              if (diff < 0) return <p className="text-xs text-red-400 mt-1">Sobrecosto: {formatCOP(-diff)}</p>
+                              return <p className="text-xs text-gray-400 mt-1">Sin variación</p>
+                            })()}
                           </div>
                           <div>
                             <label className="block text-xs text-gray-400 mb-1">¿Adherente a protocolo?</label>
