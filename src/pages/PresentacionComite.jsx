@@ -1166,11 +1166,11 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
             { value: 'no', label: 'No tiene INVIMA' },
           ]} />
       </Field>
-      <Field label="¿Está en base UNIRSE?">
+      <Field label="¿Está en base UNIRS?">
         <Select value={data.en_unirse} onChange={v => update('en_unirse', v)}
           options={[
-            { value: 'si', label: 'Sí, en UNIRSE' },
-            { value: 'no', label: 'No está en UNIRSE' },
+            { value: 'si', label: 'Sí, en UNIRS' },
+            { value: 'no', label: 'No está en UNIRS' },
           ]} />
       </Field>
 

@@ -296,8 +296,8 @@ export default function CasoDetalle() {
           <div className="md:col-span-2 flex flex-wrap gap-3">
             {caso.tiene_invima === true && <Badge color="emerald">✅ INVIMA vigente</Badge>}
             {caso.tiene_invima === false && <Badge color="rose">⚠️ Sin INVIMA</Badge>}
-            {caso.en_unirse === true && <Badge color="blue">📋 En base UNIRSE</Badge>}
-            {caso.en_unirse === false && <Badge color="slate">📋 No está en UNIRSE</Badge>}
+            {caso.en_unirse === true && <Badge color="blue">📋 En base UNIRS</Badge>}
+            {caso.en_unirse === false && <Badge color="slate">📋 No está en UNIRS</Badge>}
           </div>
         </Section>
       )}
