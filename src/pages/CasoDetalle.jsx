@@ -163,11 +163,11 @@ export default function CasoDetalle() {
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
             <Printer className="w-4 h-4" /> Imprimir / PDF
           </button>
-          <button disabled={!puedeAbrirComite}
-            title={puedeAbrirComite ? 'Abrir mesa de comité' : 'Caso ya decidido'}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
-            onClick={() => toast('Mesa de comité — próximamente', { icon: '🔜' })}>
-            <Gavel className="w-4 h-4" /> Abrir mesa de comité
+          <button
+            title={puedeAbrirComite ? 'Abrir mesa de comité' : 'Ver acta del comité'}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
+            onClick={() => navigate(`/casos/${caso.id}/acta`)}>
+            <Gavel className="w-4 h-4" /> {puedeAbrirComite ? 'Abrir mesa de comité' : 'Ver acta del comité'}
           </button>
         </div>
       </div>
