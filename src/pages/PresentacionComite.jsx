@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight, Save, Send, Check,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
   Pill, BookOpen, MessageSquareQuote, DollarSign, Paperclip, FileCheck2,
+  Users,
 } from 'lucide-react'
 
 const STEPS = [
@@ -15,6 +16,7 @@ const STEPS = [
   { id: 'antec',       label: 'Antecedentes',    icon: HeartPulse },
   { id: 'estudios',    label: 'Estudios',        icon: FlaskConical },
   { id: 'tratamientos',label: 'Tratamientos',    icon: Pill },
+  { id: 'valoraciones',label: 'Valoraciones',    icon: Users },
   { id: 'evidencia',   label: 'Evidencia',       icon: BookOpen },
   { id: 'pregunta',    label: 'Pregunta',        icon: MessageSquareQuote },
   { id: 'costos',      label: 'Costos',          icon: DollarSign },
@@ -71,7 +73,15 @@ const initialState = {
   tratamiento_dirigido: '',
   respuesta_previa: '',
 
-  // 7. Evidencia (PFS/OS del propuesto del estudio pivotal)
+  // 7. Valoraciones interdisciplinarias (opcionales)
+  valorado_psicologia: null,
+  concepto_psicologia: '',
+  valorado_trabajo_social: null,
+  concepto_trabajo_social: '',
+  valorado_paliativos: null,
+  concepto_paliativos: '',
+
+  // 8. Evidencia (PFS/OS del propuesto del estudio pivotal)
   protocolo_id: '', evidencia_referencia: '',
   evidencia_tipo: '', evidencia_link: '',
   pfs_esperado_estudio: '', os_esperado_estudio: '',
@@ -209,19 +219,22 @@ export default function PresentacionComite() {
           .forEach(f => req(f))
         break
       case 6:
+        // Valoraciones interdisciplinarias — opcionales, sin validación
+        break
+      case 7:
         req('protocolo_id'); req('evidencia_referencia')
         req('pfs_esperado_estudio'); req('os_esperado_estudio')
         break
-      case 7:
+      case 8:
         req('pregunta_comite'); req('tratamiento_propuesto')
         req('justificacion_clinica')
         break
-      case 8:
+      case 9:
         req('costo_ciclo_actual'); req('dias_ciclo_actual')
         req('pfs_actual_meses'); req('os_actual_meses')
         req('costo_ciclo_propuesto'); req('dias_ciclo_propuesto')
         break
-      case 9:
+      case 10:
         break
     }
     setErrors(errs)
@@ -372,6 +385,14 @@ export default function PresentacionComite() {
         tratamiento_dirigido: clean(data.tratamiento_dirigido),
         respuesta_previa: clean(data.respuesta_previa),
 
+        // Valoraciones interdisciplinarias (boolean | null + concepto opcional)
+        valorado_psicologia: data.valorado_psicologia,
+        concepto_psicologia: data.concepto_psicologia?.trim() || null,
+        valorado_trabajo_social: data.valorado_trabajo_social,
+        concepto_trabajo_social: data.concepto_trabajo_social?.trim() || null,
+        valorado_paliativos: data.valorado_paliativos,
+        concepto_paliativos: data.concepto_paliativos?.trim() || null,
+
         evidencia_referencia: clean(data.evidencia_referencia),
         evidencia_tipo: clean(data.evidencia_tipo),
         evidencia_link: clean(data.evidencia_link),
@@ -458,10 +479,11 @@ export default function PresentacionComite() {
         {step === 3 && <StepAntecedentes {...{ data, update, errors, toggleNA }} />}
         {step === 4 && <StepEstudios {...{ data, update, errors, toggleNA }} />}
         {step === 5 && <StepTratamientos {...{ data, update, errors, toggleNA }} />}
-        {step === 6 && <StepEvidencia {...{ data, update, errors, protocolos }} />}
-        {step === 7 && <StepPregunta {...{ data, update, errors }} />}
-        {step === 8 && <StepCostos {...{ data, update, errors, toggleNA, proyeccion }} />}
-        {step === 9 && <StepAdjuntos {...{ data, update, errors }} />}
+        {step === 6 && <StepValoraciones {...{ data, update }} />}
+        {step === 7 && <StepEvidencia {...{ data, update, errors, protocolos }} />}
+        {step === 8 && <StepPregunta {...{ data, update, errors }} />}
+        {step === 9 && <StepCostos {...{ data, update, errors, toggleNA, proyeccion }} />}
+        {step === 10 && <StepAdjuntos {...{ data, update, errors }} />}
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
@@ -992,6 +1014,67 @@ Línea 3: AC x4 ciclos + Paclitaxel x12 semanales (jul 2025-feb 2026)`}
           placeholder="Ej. Respuesta parcial inicial. Progresión hepática documentada en TAC del 20/04/2026 (RECIST 1.1)"
           error={errors.respuesta_previa} />
       </Field>
+    </Section>
+  )
+}
+
+/* ──────────────────────────────────────────────────────────────
+   STEP 7 — Valoraciones interdisciplinarias (opcional)
+   ────────────────────────────────────────────────────────────── */
+function ValoracionField({ label, valorado, concepto, onValoradoChange, onConceptoChange }) {
+  const opciones = [
+    { label: 'Sí', value: true },
+    { label: 'No', value: false },
+    { label: 'Sin información', value: null },
+  ]
+  return (
+    <div className="md:col-span-2 bg-slate-50 border border-slate-200 rounded-xl p-4">
+      <h3 className="text-sm font-bold text-slate-800 mb-3">Valoración por {label}</h3>
+      <div className="flex flex-wrap gap-2">
+        {opciones.map(o => {
+          const activo = valorado === o.value
+          return (
+            <button key={String(o.value)} type="button"
+              onClick={() => onValoradoChange(o.value)}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border-2 transition-colors ${
+                activo
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-300 hover:border-blue-400'
+              }`}>
+              {o.label}
+            </button>
+          )
+        })}
+      </div>
+      {valorado === true && (
+        <div className="mt-3">
+          <label className="text-sm font-semibold text-slate-800 block mb-1.5">
+            Concepto/observaciones de {label}
+          </label>
+          <TextArea value={concepto} onChange={onConceptoChange} rows={3}
+            placeholder={`Resumen del concepto de ${label}...`} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StepValoraciones({ data, update }) {
+  return (
+    <Section title="Valoraciones interdisciplinarias"
+      description="Conceptos de las disciplinas de apoyo (opcional)" icon={Users}>
+      <ValoracionField label="Psicología"
+        valorado={data.valorado_psicologia} concepto={data.concepto_psicologia}
+        onValoradoChange={v => update('valorado_psicologia', v)}
+        onConceptoChange={v => update('concepto_psicologia', v)} />
+      <ValoracionField label="Trabajo social"
+        valorado={data.valorado_trabajo_social} concepto={data.concepto_trabajo_social}
+        onValoradoChange={v => update('valorado_trabajo_social', v)}
+        onConceptoChange={v => update('concepto_trabajo_social', v)} />
+      <ValoracionField label="Cuidados paliativos"
+        valorado={data.valorado_paliativos} concepto={data.concepto_paliativos}
+        onValoradoChange={v => update('valorado_paliativos', v)}
+        onConceptoChange={v => update('concepto_paliativos', v)} />
     </Section>
   )
 }
