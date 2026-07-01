@@ -102,8 +102,9 @@ export default function MesaComite() {
           participantes:   Array.isArray(actaRes.data.participantes) ? actaRes.data.participantes : [],
         })
       } else {
+        // Acta nueva: pre-llenar el resumen con los datos del caso
         setActa(null)
-        setForm(emptyForm)
+        setForm({ ...emptyForm, resumen_clinico: generarResumenClinico(casoRes.data) })
       }
     } catch (e) {
       toast.error(`No se pudo cargar la mesa de comité: ${e.message}`)
@@ -116,6 +117,12 @@ export default function MesaComite() {
   const readOnly = acta?.firmada === true
 
   const setField = (key, value) => setForm(f => ({ ...f, [key]: value }))
+
+  function handleRegenerarResumen() {
+    if (!window.confirm('¿Sobrescribir el resumen actual con los datos más recientes del caso?')) return
+    setForm(prev => ({ ...prev, resumen_clinico: generarResumenClinico(caso) }))
+    toast.success('Resumen regenerado')
+  }
 
   const addParticipante = () =>
     setForm(f => ({ ...f, participantes: [...f.participantes, { nombre: '', rol: '', especialidad: '' }] }))
@@ -233,7 +240,13 @@ export default function MesaComite() {
 
       {/* Secciones */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <SectionCard title="Resumen clínico" icon={ClipboardList}>
+        <SectionCard title="Resumen clínico" icon={ClipboardList}
+          actions={!readOnly && (
+            <button type="button" onClick={handleRegenerarResumen}
+              className="text-xs text-blue-600 hover:underline">
+              Regenerar desde caso
+            </button>
+          )}>
           <textarea
             value={form.resumen_clinico}
             onChange={e => setField('resumen_clinico', e.target.value)}
@@ -333,7 +346,7 @@ export default function MesaComite() {
   )
 }
 
-function SectionCard({ title, icon: Icon, children }) {
+function SectionCard({ title, icon: Icon, actions, children }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-6 print:shadow-none print:border print:rounded-none">
       <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-200">
@@ -341,10 +354,134 @@ function SectionCard({ title, icon: Icon, children }) {
           <Icon className="w-5 h-5" />
         </div>
         <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+        {actions && <div className="ml-auto print:hidden">{actions}</div>}
       </div>
       {children}
     </div>
   )
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Generación del resumen clínico a partir del caso
+   ────────────────────────────────────────────────────────────── */
+const GENERO_RESUMEN = { M: 'Masculino', F: 'Femenino', I: 'Indeterminado' }
+const TABACO_RESUMEN = { nunca: 'No fumador', exfumador: 'Exfumador', activo: 'Fumador activo' }
+const ALCOHOL_RESUMEN = {
+  nunca: 'No consume alcohol', social: 'Consumo social',
+  frecuente: 'Consumo frecuente', abuso: 'Abuso/dependencia',
+}
+
+const resumenVal = (x) => {
+  const s = (x ?? '').toString().trim()
+  return s || 'No registrado'
+}
+const resumenFirst = (...xs) => {
+  for (const x of xs) {
+    const s = (x ?? '').toString().trim()
+    if (s) return s
+  }
+  return 'No registrado'
+}
+const resumenCOP = (n) => {
+  if (n == null || n === '' || isNaN(Number(n))) return 'No registrado'
+  return '$ ' + Number(n).toLocaleString('es-CO') + ' COP'
+}
+const resumenEdad = (fechaNac) => {
+  if (!fechaNac) return null
+  const nac = new Date(fechaNac)
+  if (isNaN(nac.getTime())) return null
+  const hoy = new Date()
+  let edad = hoy.getFullYear() - nac.getFullYear()
+  const m = hoy.getMonth() - nac.getMonth()
+  if (m < 0 || (m === 0 && hoy.getDate() < nac.getDate())) edad--
+  return edad >= 0 ? edad : null
+}
+
+function generarResumenClinico(caso) {
+  if (!caso) return ''
+  const p = caso.paciente || {}
+
+  // PACIENTE
+  const edad = resumenEdad(p.fecha_nacimiento)
+  const edadTxt = edad == null ? 'Edad no registrada' : `${edad} años`
+  const sexo = GENERO_RESUMEN[p.genero] || 'No registrado'
+  const paciente = `PACIENTE: ${resumenVal(p.nombre)}, ${edadTxt}, ${sexo}`
+
+  // DIAGNÓSTICO (omitir guión si falta cie10 o descripción)
+  const diag = [caso.cie10, caso.diagnostico_descripcion]
+    .map(x => (x ?? '').toString().trim()).filter(Boolean).join(' - ')
+
+  const bloque1 = [
+    paciente,
+    `DIAGNÓSTICO: ${diag || 'No registrado'}`,
+    `ESTADIO: ${resumenVal(caso.estadio_clinico)} (TNM: ${resumenVal(caso.tnm)})`,
+    `HISTOLOGÍA: ${resumenVal(caso.histologia)}`,
+    `BIOMARCADORES: ${resumenVal(caso.biomarcadores)}`,
+  ].join('\n')
+
+  // ECOG / COMORBILIDADES / HÁBITOS
+  const tabaco = TABACO_RESUMEN[caso.habito_tabaquico] || 'No registrado'
+  const alcohol = ALCOHOL_RESUMEN[caso.habito_alcohol] || 'No registrado'
+  const bloque2 = [
+    `ECOG: ${resumenVal(caso.ecog)}`,
+    `COMORBILIDADES: ${resumenVal(caso.comorbilidades)}`,
+    `HÁBITOS: ${tabaco}, ${alcohol}`,
+  ].join('\n')
+
+  // TRATAMIENTOS PREVIOS (omitir modalidades vacías)
+  const trat = []
+  const pushTrat = (label, valor) => {
+    const s = (valor ?? '').toString().trim()
+    if (s) trat.push(`- ${label}: ${s}`)
+  }
+  pushTrat('Línea actual', caso.molecula_previa)
+  pushTrat('Quimioterapia y líneas previas', caso.tratamiento_qt)
+  pushTrat('Radioterapia', caso.tratamiento_rt)
+  pushTrat('Cirugía', caso.tratamiento_quirurgico)
+  pushTrat('Terapia dirigida', caso.tratamiento_dirigido)
+  if (trat.length === 0) trat.push('- No registrado')
+  const bloque3 = ['TRATAMIENTOS PREVIOS:', ...trat].join('\n')
+
+  // VALORACIONES INTERDISCIPLINARIAS
+  const valoracion = (label, valorado, concepto) => {
+    if (valorado === true) {
+      const c = (concepto ?? '').toString().trim()
+      return `- ${label}: Sí${c ? ` — ${c}` : ''}`
+    }
+    if (valorado === false) return `- ${label}: No valorado`
+    return `- ${label}: Sin información`
+  }
+  const bloque4 = [
+    'VALORACIONES INTERDISCIPLINARIAS:',
+    valoracion('Psicología', caso.valorado_psicologia, caso.concepto_psicologia),
+    valoracion('Trabajo social', caso.valorado_trabajo_social, caso.concepto_trabajo_social),
+    valoracion('Cuidados paliativos', caso.valorado_paliativos, caso.concepto_paliativos),
+  ].join('\n')
+
+  // PREGUNTA AL COMITÉ
+  const bloque5 = `PREGUNTA AL COMITÉ:\n${resumenFirst(caso.pregunta_comite, caso.motivo)}`
+
+  // PROPUESTA
+  const pfs = caso.pfs_esperado_estudio
+  const os = caso.os_esperado_estudio
+  const pfsTxt = (pfs == null || pfs === '') ? 'No registrado' : `${pfs} meses`
+  const osTxt = (os == null || os === '') ? 'No registrado' : `${os} meses`
+  const bloque6 = [
+    'PROPUESTA:',
+    resumenFirst(caso.tratamiento_propuesto, caso.molecula_propuesta),
+    resumenFirst(caso.justificacion_clinica, caso.justificacion),
+    `PFS esperado: ${pfsTxt} | OS esperado: ${osTxt}`,
+  ].join('\n')
+
+  // COSTOS
+  const bloque7 = [
+    'COSTOS:',
+    `- Costo previo: ${resumenCOP(caso.costo_previo)}`,
+    `- Costo propuesto: ${resumenCOP(caso.costo_estimado)}`,
+  ].join('\n')
+
+  return [bloque1, bloque2, bloque3, bloque4, bloque5, bloque6, bloque7]
+    .join('\n\n').trim()
 }
 
 function ParticipantesEditor({ value, readOnly, onAdd, onUpdate, onRemove }) {
