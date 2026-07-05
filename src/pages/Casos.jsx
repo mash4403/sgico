@@ -48,7 +48,7 @@ export default function Casos() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchCasos() }, [filterEstado, filterDecision])
+  useEffect(() => { fetchCasos() }, [filterEstado, filterDecision]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredCasos = casos.filter(c => {
     if (!search) return true

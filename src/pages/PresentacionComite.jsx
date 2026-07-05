@@ -165,7 +165,7 @@ export default function PresentacionComite() {
   /* ── Cálculo de proyección — solo PFS ── */
   const proyeccion = useMemo(() => {
     return calcularProyeccion(data)
-  }, [
+  }, [ // eslint-disable-line react-hooks/exhaustive-deps
     data.costo_ciclo_actual, data.dias_ciclo_actual,
     data.costo_ciclo_propuesto, data.dias_ciclo_propuesto,
     data.pfs_actual_meses, data.os_actual_meses,
@@ -1311,7 +1311,7 @@ function CardActual({ proy }) {
       <div className="text-[11px] font-bold text-slate-700 uppercase mb-2">Tratamiento actual</div>
       {naive ? (
         <div className="text-xs text-slate-500 italic py-3">
-          PFS marcado como "No aplica" — paciente naive.<br />
+          PFS marcado como &quot;No aplica&quot; — paciente naive.<br />
           No hay cálculo de costo previo.
         </div>
       ) : (

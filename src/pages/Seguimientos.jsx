@@ -99,7 +99,7 @@ export default function Seguimientos() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchData() }, [tab])
+  useEffect(() => { fetchData() }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const initForm = (s) => {
     if (s.tipo === 'post_comite') {

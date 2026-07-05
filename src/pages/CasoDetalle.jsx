@@ -61,7 +61,7 @@ export default function CasoDetalle() {
   const [loading, setLoading] = useState(true)
   const [showHistorial, setShowHistorial] = useState(false)
 
-  useEffect(() => { cargarCaso() }, [id])
+  useEffect(() => { cargarCaso() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargarCaso() {
     setLoading(true)
@@ -418,7 +418,7 @@ function ProyeccionCostosSection({ proyeccion }) {
           <div className="text-xs font-bold text-slate-700 uppercase mb-3">🩺 Tratamiento actual</div>
           {p.actual?.pfs_meses == null ? (
             <div className="text-sm text-slate-500 italic py-3">
-              Paciente naive (PFS marcado como "No aplica"). Sin cálculo de costo previo.
+              Paciente naive (PFS marcado como &quot;No aplica&quot;). Sin cálculo de costo previo.
             </div>
           ) : (
             <>

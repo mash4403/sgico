@@ -69,7 +69,7 @@ export default function MesaComite() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => { cargarDatos() }, [id])
+  useEffect(() => { cargarDatos() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargarDatos() {
     setLoading(true)
