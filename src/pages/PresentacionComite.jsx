@@ -428,10 +428,10 @@ export default function PresentacionComite() {
   return (
     <div className="max-w-5xl mx-auto p-4 lg:p-6">
       <div className="mb-6">
-        <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">
+        <h1 className="text-2xl lg:text-3xl font-bold text-white">
           Presentación al Comité de Tumores
         </h1>
-        <p className="text-slate-600 text-sm mt-1">
+        <p className="text-slate-300 text-sm mt-1">
           Complete la información clínica y administrativa para inscribir el caso
         </p>
       </div>
