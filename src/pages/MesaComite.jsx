@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { formatDateTime } from '../lib/utils'
+import { formatDateTime, generarTextoHistoriaClinica } from '../lib/utils'
+import { copiarTextoAlPortapapeles } from '../lib/clipboard'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Gavel, Printer, Plus, X, Lock,
-  Loader2, ClipboardList, MessagesSquare, Users, FileSignature,
+  Loader2, ClipboardList, MessagesSquare, Users, FileSignature, ClipboardCopy,
 } from 'lucide-react'
 
 const INTENCION_OPTS = [
@@ -194,6 +195,26 @@ export default function MesaComite() {
     }
   }
 
+  async function copiarAHistoriaClinica() {
+    // Copiar el estado en pantalla (form), incluyendo cambios sin guardar.
+    // Se conserva fecha_firma del acta guardada si existe.
+    const actaEnPantalla = {
+      discusion: form.discusion,
+      decision: form.decision,
+      intencion: form.intencion,
+      decision_final: form.decision_final,
+      participantes: form.participantes,
+      fecha_firma: acta?.fecha_firma ?? null,
+    }
+    const texto = generarTextoHistoriaClinica(caso, actaEnPantalla)
+    try {
+      await copiarTextoAlPortapapeles(texto)
+      toast.success('Texto copiado. Pégalo en la historia clínica.')
+    } catch {
+      toast.error('No se pudo copiar automáticamente. Texto: ' + texto, { duration: 12000 })
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -310,6 +331,10 @@ export default function MesaComite() {
 
       {/* Acciones */}
       <div className="flex flex-col sm:flex-row sm:justify-end gap-3 mt-6 print:hidden">
+        <button onClick={copiarAHistoriaClinica}
+          className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
+          <ClipboardCopy className="w-4 h-4" /> Copiar a historia clínica
+        </button>
         {readOnly ? (
           <button onClick={() => window.print()}
             className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium">

@@ -84,3 +84,92 @@ export const formatDateTime = (value) => {
     return '—'
   }
 }
+
+/* ──────────────────────────────────────────────────────────────
+   Texto para pegar en la historia clínica del hospital
+   Un solo párrafo corrido a partir del caso + acta del comité.
+   Usada por MesaComite y CasoDetalle (no duplicar).
+   ────────────────────────────────────────────────────────────── */
+
+// Fecha DD/MM/AAAA; null → 'fecha pendiente'
+const hcFecha = (value) => {
+  const f = formatDate(value)
+  return f === '—' ? 'fecha pendiente' : f
+}
+
+// Capitalizar primera letra (aprobado → Aprobado)
+const hcCapitalizar = (s) => {
+  const t = (s ?? '').toString().trim()
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''
+}
+
+// Concepto de una valoración interdisciplinaria según su estado
+const hcValoracion = (valorado, concepto) => {
+  const c = (concepto ?? '').toString().trim()
+  if (valorado === true) return c || 'valorado'
+  if (valorado === false) return 'no valorado'
+  return 'sin información'
+}
+
+export function generarTextoHistoriaClinica(caso, acta) {
+  const c = caso || {}
+  const a = acta || {}
+  const p = c.paciente || {}
+
+  const partes = []
+
+  // Encabezado con fecha de firma
+  partes.push(`COMITÉ ONCOLÓGICO — Acta del ${hcFecha(a.fecha_firma)}.`)
+
+  // Paciente + documento
+  const nombre = (p.nombre ?? '').toString().trim()
+  const doc = (p.documento ?? '').toString().trim()
+  if (nombre || doc) {
+    const docTxt = doc ? ` (CC ${doc})` : ''
+    partes.push(`Paciente ${nombre || 'sin nombre'}${docTxt},`)
+  }
+
+  // Diagnóstico
+  const diag = (c.diagnostico_descripcion ?? '').toString().trim()
+  if (diag) partes.push(`diagnóstico de ${diag}.`)
+
+  // Pregunta al comité
+  const pregunta = ((c.pregunta_comite ?? c.motivo) ?? '').toString().trim()
+  if (pregunta) partes.push(`Pregunta al comité: ${pregunta}.`)
+
+  // Valoraciones interdisciplinarias
+  partes.push(
+    `Valoraciones interdisciplinarias: psicología (${hcValoracion(c.valorado_psicologia, c.concepto_psicologia)}), ` +
+    `trabajo social (${hcValoracion(c.valorado_trabajo_social, c.concepto_trabajo_social)}), ` +
+    `cuidados paliativos (${hcValoracion(c.valorado_paliativos, c.concepto_paliativos)}).`
+  )
+
+  // Discusión (omitir si vacía)
+  const discusion = (a.discusion ?? '').toString().trim()
+  if (discusion) partes.push(`Discusión del comité: ${discusion}.`)
+
+  // Decisión final (omitir si vacía)
+  const decisionFinal = hcCapitalizar(a.decision_final)
+  if (decisionFinal) partes.push(`DECISIÓN DEL COMITÉ: ${decisionFinal}.`)
+
+  // Intención (omitir si vacía)
+  const intencion = hcCapitalizar(a.intencion)
+  if (intencion) partes.push(`Intención del tratamiento: ${intencion}.`)
+
+  // Narrativa de la decisión (omitir si vacía)
+  const narrativa = (a.decision ?? '').toString().trim()
+  if (narrativa) partes.push(`${narrativa}.`)
+
+  // Participantes
+  const participantes = Array.isArray(a.participantes) ? a.participantes : []
+  const nombres = participantes
+    .map(x => (x?.nombre ?? '').toString().trim())
+    .filter(Boolean)
+  partes.push(`Participantes: ${nombres.length ? nombres.join(', ') : 'no registrados'}.`)
+
+  // Firma final
+  partes.push(`Acta firmada el ${hcFecha(a.fecha_firma)}.`)
+
+  // Unir en un solo párrafo, colapsar espacios múltiples, trim
+  return partes.join(' ').replace(/\s+/g, ' ').trim()
+}

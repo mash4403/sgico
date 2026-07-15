@@ -1,13 +1,14 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { formatDate } from '../lib/utils'
+import { formatDate, generarTextoHistoriaClinica } from '../lib/utils'
+import { copiarTextoAlPortapapeles } from '../lib/clipboard'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Printer, Gavel, Clock, FileText, Download,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
   Pill, BookOpen, MessageSquareQuote, DollarSign, Paperclip,
-  CheckCircle2, XCircle, AlertCircle, Loader2, ShieldCheck,
+  CheckCircle2, XCircle, AlertCircle, Loader2, ShieldCheck, ClipboardCopy,
 } from 'lucide-react'
 
 const DECISION_LABELS = {
@@ -57,6 +58,7 @@ export default function CasoDetalle() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [caso, setCaso] = useState(null)
+  const [acta, setActa] = useState(null)
   const [historial, setHistorial] = useState([])
   const [loading, setLoading] = useState(true)
   const [showHistorial, setShowHistorial] = useState(false)
@@ -95,6 +97,14 @@ export default function CasoDetalle() {
         .eq('caso_id', id)
         .order('created_at', { ascending: false })
       setHistorial(hist || [])
+
+      // Acta del comité (puede no existir todavía)
+      const { data: actaData } = await supabase
+        .from('actas_comite')
+        .select('*')
+        .eq('caso_id', id)
+        .maybeSingle()
+      setActa(actaData || null)
     } catch (e) {
       toast.error(`No se pudo cargar el caso: ${e.message}`)
       navigate('/casos')
@@ -114,6 +124,16 @@ export default function CasoDetalle() {
   }, [caso])
 
   const imprimir = () => window.print()
+
+  async function copiarAHistoriaClinica() {
+    const texto = generarTextoHistoriaClinica(caso, acta)
+    try {
+      await copiarTextoAlPortapapeles(texto)
+      toast.success('Texto copiado. Pégalo en la historia clínica.')
+    } catch {
+      toast.error('No se pudo copiar automáticamente. Texto: ' + texto, { duration: 12000 })
+    }
+  }
 
   const descargarAdjunto = async (path, nombre) => {
   try {
@@ -163,6 +183,12 @@ export default function CasoDetalle() {
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
             <Printer className="w-4 h-4" /> Imprimir / PDF
           </button>
+          {acta && (
+            <button onClick={copiarAHistoriaClinica}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
+              <ClipboardCopy className="w-4 h-4" /> Copiar a historia clínica
+            </button>
+          )}
           <button
             title={puedeAbrirComite ? 'Abrir mesa de comité' : 'Ver acta del comité'}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
