@@ -26,6 +26,11 @@ const STEPS = [
 const DRAFT_KEY = 'sgico_presentacion_draft'
 const NA = '__NA__'
 
+// Fuente de verdad del paciente naive: línea 0 = nunca tratado.
+// Ojo: Number('') === 0, por eso se descarta el vacío explícitamente.
+const esPacienteNaive = (linea) =>
+  linea !== '' && linea !== null && linea !== undefined && Number(linea) === 0
+
 const toIntOrNull = (v) => {
   if (v === '' || v === null || v === undefined) return null
   const n = parseInt(v, 10)
@@ -160,6 +165,33 @@ export default function PresentacionComite() {
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: undefined }))
   }
 
+  const updateMany = (patch) => {
+    setData(prev => ({ ...prev, ...patch }))
+    setErrors(prev => {
+      const next = { ...prev }
+      Object.keys(patch).forEach(f => delete next[f])
+      return next
+    })
+  }
+
+  // linea_actual = 0 implica paciente naive: los campos del tratamiento actual
+  // se autocompletan (NA en PFS/OS mantiene es_naive en calcularProyeccion) y se
+  // limpian si el usuario se corrige a una línea > 0.
+  const updateLineaActual = (value) => {
+    if (esPacienteNaive(value) === esPacienteNaive(data.linea_actual)) {
+      update('linea_actual', value)
+      return
+    }
+    updateMany({
+      linea_actual: value,
+      ...(esPacienteNaive(value)
+        ? { costo_ciclo_actual: '0', dias_ciclo_actual: '0',
+            pfs_actual_meses: NA, os_actual_meses: NA }
+        : { costo_ciclo_actual: '', dias_ciclo_actual: '',
+            pfs_actual_meses: '', os_actual_meses: '' }),
+    })
+  }
+
   const toggleNA = (field) => {
     update(field, data[field] === NA ? '' : NA)
   }
@@ -236,8 +268,11 @@ export default function PresentacionComite() {
         req('justificacion_clinica')
         break
       case 9:
-        req('costo_ciclo_actual'); req('dias_ciclo_actual')
-        req('pfs_actual_meses'); req('os_actual_meses')
+        // El paciente naive no tiene tratamiento actual que costear
+        if (!esPacienteNaive(data.linea_actual)) {
+          req('costo_ciclo_actual'); req('dias_ciclo_actual')
+          req('pfs_actual_meses'); req('os_actual_meses')
+        }
         req('costo_ciclo_propuesto'); req('dias_ciclo_propuesto')
         break
       case 10:
@@ -354,8 +389,11 @@ export default function PresentacionComite() {
           data.tratamiento_dirigido,
         ].filter(x => x && x !== NA).join(' | ') || null,
 
-        // Costos planos
-        costo_previo:    toFloatOrNull(data.costo_ciclo_actual),
+        // Costos planos. El naive no tiene costo previo: null (sin dato), no 0,
+        // para que no contamine los agregados.
+        costo_previo:    esPacienteNaive(data.linea_actual)
+          ? null
+          : toFloatOrNull(data.costo_ciclo_actual),
         costo_estimado:  toFloatOrNull(data.costo_ciclo_propuesto),
         proyeccion_costos: proyeccion,
 
@@ -484,7 +522,7 @@ export default function PresentacionComite() {
         {step === 2 && <StepDiagnostico {...{ data, update, errors, toggleNA }} />}
         {step === 3 && <StepAntecedentes {...{ data, update, errors, toggleNA }} />}
         {step === 4 && <StepEstudios {...{ data, update, errors, toggleNA }} />}
-        {step === 5 && <StepTratamientos {...{ data, update, errors, toggleNA }} />}
+        {step === 5 && <StepTratamientos {...{ data, update, updateLineaActual, errors, toggleNA }} />}
         {step === 6 && <StepValoraciones {...{ data, update }} />}
         {step === 7 && <StepEvidencia {...{ data, update, errors, protocolos }} />}
         {step === 8 && <StepPregunta {...{ data, update, errors }} />}
@@ -537,8 +575,11 @@ function calcularProyeccion(d) {
   const pfsA = pfsActualNA ? null : parseFloat(d.pfs_actual_meses)
   const osA  = osActualNA  ? null : parseFloat(d.os_actual_meses)
 
-  // Inputs mínimos requeridos para calcular cualquier cosa
-  if ([ca, da, cp, dp, pfsP].some(v => isNaN(v) || v <= 0)) return null
+  // Inputs mínimos requeridos para calcular cualquier cosa.
+  // En un paciente naive no hay tratamiento actual (ca y da son 0), así que
+  // exigirlos > 0 anularía la proyección del propuesto, que sí es válida.
+  const minimos = pfsActualNA ? [cp, dp, pfsP] : [ca, da, cp, dp, pfsP]
+  if (minimos.some(v => isNaN(v) || v <= 0)) return null
 
   const ciclosPfsP = (pfsP * 30) / dp
   const totalPfsP = ciclosPfsP * cp
@@ -663,7 +704,7 @@ function Field({ label, required, error, naValue, onToggleNA, children, full, hi
   )
 }
 
-const inputBase = 'w-full px-3 py-2 border-2 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+const inputBase = 'w-full px-3 py-2 border-2 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed'
 
 function Input({ value, onChange, error, ...rest }) {
   return (
@@ -946,7 +987,7 @@ function StepEstudios({ data, update, errors, toggleNA }) {
 /* ──────────────────────────────────────────────────────────────
    STEP 6 — Tratamientos (REESTRUCTURADO)
    ────────────────────────────────────────────────────────────── */
-function StepTratamientos({ data, update, errors, toggleNA }) {
+function StepTratamientos({ data, update, updateLineaActual, errors, toggleNA }) {
   return (
     <Section title="Tratamientos previos y actual" description="Línea actual del paciente, tratamientos previos y modalidades" icon={Pill}>
       {/* TRATAMIENTO ACTUAL */}
@@ -958,7 +999,7 @@ function StepTratamientos({ data, update, errors, toggleNA }) {
       <Field label="Línea actual de tratamiento" required error={errors.linea_actual}
         hint="Número de la línea actual. 0 = paciente naive (no ha recibido tratamiento previo).">
         <Input type="number" min="0" max="10" value={data.linea_actual}
-          onChange={v => update('linea_actual', v)} placeholder="Ej. 1, 2, 3..."
+          onChange={updateLineaActual} placeholder="Ej. 1, 2, 3..."
           error={errors.linea_actual} />
       </Field>
       <Field label="Tratamiento actual" required error={errors.tratamiento_actual}
@@ -1178,6 +1219,7 @@ function StepPregunta({ data, update, errors }) {
 function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
   const pfsActualNA = data.pfs_actual_meses === NA
   const osActualNA  = data.os_actual_meses === NA
+  const naive = esPacienteNaive(data.linea_actual)
 
   return (
     <Section
@@ -1191,27 +1233,33 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
           🩺 Tratamiento actual del paciente
         </h3>
       </div>
-      <Field label="Costo por ciclo (COP)" required error={errors.costo_ciclo_actual}>
-        <Input type="number" min="0" value={data.costo_ciclo_actual}
+      {naive && (
+        <div className="md:col-span-2 -mt-2 mb-1 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
+          Paciente naive — sin tratamiento previo. No aplica costo ni supervivencia
+          del tratamiento actual.
+        </div>
+      )}
+      <Field label="Costo por ciclo (COP)" required={!naive} error={errors.costo_ciclo_actual}>
+        <Input type="number" min="0" value={data.costo_ciclo_actual} disabled={naive}
           onChange={v => update('costo_ciclo_actual', v)} placeholder="Ej. 2500000"
           error={errors.costo_ciclo_actual} />
       </Field>
-      <Field label="Duración del ciclo (días)" required error={errors.dias_ciclo_actual}>
-        <Input type="number" min="1" value={data.dias_ciclo_actual}
+      <Field label="Duración del ciclo (días)" required={!naive} error={errors.dias_ciclo_actual}>
+        <Input type="number" min="1" value={data.dias_ciclo_actual} disabled={naive}
           onChange={v => update('dias_ciclo_actual', v)} placeholder="21"
           error={errors.dias_ciclo_actual} />
       </Field>
-      <Field label="PFS estimado actual (meses)" required error={errors.pfs_actual_meses}
-        naValue={pfsActualNA} onToggleNA={() => toggleNA('pfs_actual_meses')}
-        hint="Si el paciente es naive (línea 0), marque 'No aplica'.">
-        <Input type="number" step="0.1" min="0" value={data.pfs_actual_meses}
+      <Field label="PFS estimado actual (meses)" required={!naive} error={errors.pfs_actual_meses}
+        naValue={pfsActualNA} onToggleNA={naive ? undefined : () => toggleNA('pfs_actual_meses')}
+        hint={naive ? undefined : "Si el paciente es naive (línea 0), marque 'No aplica'."}>
+        <Input type="number" step="0.1" min="0" value={data.pfs_actual_meses} disabled={naive}
           onChange={v => update('pfs_actual_meses', v)} placeholder="Ej. 4.5"
           error={errors.pfs_actual_meses} />
       </Field>
-      <Field label="OS estimado actual (meses)" required error={errors.os_actual_meses}
-        naValue={osActualNA} onToggleNA={() => toggleNA('os_actual_meses')}
-        hint="Información de referencia. No se usa en el cálculo económico.">
-        <Input type="number" step="0.1" min="0" value={data.os_actual_meses}
+      <Field label="OS estimado actual (meses)" required={!naive} error={errors.os_actual_meses}
+        naValue={osActualNA} onToggleNA={naive ? undefined : () => toggleNA('os_actual_meses')}
+        hint={naive ? undefined : 'Información de referencia. No se usa en el cálculo económico.'}>
+        <Input type="number" step="0.1" min="0" value={data.os_actual_meses} disabled={naive}
           onChange={v => update('os_actual_meses', v)} placeholder="Ej. 13.5"
           error={errors.os_actual_meses} />
       </Field>
