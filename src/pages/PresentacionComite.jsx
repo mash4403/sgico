@@ -122,6 +122,8 @@ export default function PresentacionComite() {
     if (draft) {
       try {
         const parsed = JSON.parse(draft)
+        // Borradores antiguos pueden traer ecog='__NA__'; el campo ya no admite NA
+        if (parsed.data?.ecog === NA) parsed.data.ecog = ''
         setData(prev => ({ ...prev, ...parsed.data }))
         setStep(parsed.step || 0)
         toast.success('Borrador recuperado', { icon: '📝' })
@@ -175,9 +177,12 @@ export default function PresentacionComite() {
   const validateStep = (idx) => {
     const errs = {}
     const today = new Date().toISOString().split('T')[0]
-    const req = (f) => {
+    // allowNA: false para campos donde "No aplica" no es una respuesta válida
+    const req = (f, { allowNA = true } = {}) => {
       const v = data[f]
-      if (v === '' || v === null || v === undefined) errs[f] = 'Requerido'
+      if (v === '' || v === null || v === undefined || (!allowNA && v === NA)) {
+        errs[f] = 'Requerido'
+      }
     }
     const noFuture = (f) => {
       const v = data[f]
@@ -202,7 +207,8 @@ export default function PresentacionComite() {
         noFuture('fecha_diagnostico')
         break
       case 3:
-        ;['ecog','comorbilidades','alergias','habito_tabaquico',
+        req('ecog', { allowNA: false })
+        ;['comorbilidades','alergias','habito_tabaquico',
           'habito_alcohol','medicacion_actual'].forEach(f => req(f))
         break
       case 4:
@@ -851,8 +857,7 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
 function StepAntecedentes({ data, update, errors, toggleNA }) {
   return (
     <Section title="Antecedentes y comorbilidades" description="Estado funcional, enfermedades concomitantes y hábitos" icon={HeartPulse}>
-      <Field label="ECOG Performance Status" required error={errors.ecog}
-        naValue={data.ecog === NA} onToggleNA={() => toggleNA('ecog')}>
+      <Field label="ECOG Performance Status" required error={errors.ecog}>
         <Select value={data.ecog} onChange={v => update('ecog', v)}
           options={[
             { value: '0', label: '0 — Asintomático, totalmente activo' },
