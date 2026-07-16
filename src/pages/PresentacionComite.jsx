@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { mensajeCostoPrevio, mensajeSinDiferencial } from '../lib/utils'
 import toast from 'react-hot-toast'
 import {
   ChevronLeft, ChevronRight, Save, Send, Check,
@@ -615,12 +616,16 @@ function calcularProyeccion(d) {
       es_naive: false,
     }
   } else {
-    // Paciente naive: no hay actual con qué comparar
+    // Sin PFS actual no hay con qué comparar. Dos motivos distintos caen aquí:
+    // el paciente nunca fue tratado, o tiene línea previa y falta el dato.
     diferencial = {
       diferencia_pfs: null,
       ganancia_pfs_meses: null,
       costo_por_mes_pfs_ganado: null,
       es_naive: true,
+      motivo_sin_diferencial: esPacienteNaive(d.linea_actual)
+        ? 'naive'
+        : 'falta_pfs_actual',
     }
   }
 
@@ -1333,7 +1338,7 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
             </div>
             {proyeccion.diferencial.es_naive ? (
               <div className="text-sm text-slate-700 italic">
-                Paciente naive (sin tratamiento previo). No hay base de comparación; solo se proyecta el costo total del propuesto.
+                {mensajeSinDiferencial(proyeccion.diferencial.motivo_sin_diferencial)}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
@@ -1358,14 +1363,13 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
 
 function CardActual({ proy }) {
   const a = proy.actual
-  const naive = a.pfs_meses == null
+  const sinCalculo = a.pfs_meses == null
   return (
     <div className="bg-white rounded-lg p-3 border border-blue-100">
       <div className="text-[11px] font-bold text-slate-700 uppercase mb-2">Tratamiento actual</div>
-      {naive ? (
+      {sinCalculo ? (
         <div className="text-xs text-slate-500 italic py-3">
-          PFS marcado como &quot;No aplica&quot; — paciente naive.<br />
-          No hay cálculo de costo previo.
+          {mensajeCostoPrevio(proy.diferencial?.motivo_sin_diferencial)}
         </div>
       ) : (
         <div className="space-y-1 text-sm">

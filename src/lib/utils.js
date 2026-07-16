@@ -103,6 +103,29 @@ const hcCapitalizar = (s) => {
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Mensajes de proyección cuando no hay diferencial que mostrar.
+
+   El motivo viene de `diferencial.motivo_sin_diferencial`:
+     'naive'             → línea 0, el paciente nunca fue tratado
+     'falta_pfs_actual'  → hay línea previa pero no se registró el PFS
+     undefined           → caso guardado antes de que existiera el campo;
+                           se conserva el texto histórico para no alterar
+                           lo que ya se mostraba.
+   ────────────────────────────────────────────────────────────── */
+export const mensajeCostoPrevio = (motivo) => {
+  if (motivo === 'naive') return 'Paciente naive (sin tratamiento previo). Sin cálculo de costo previo.'
+  if (motivo === 'falta_pfs_actual') return 'Falta el PFS alcanzado con el tratamiento actual.'
+  return 'Paciente naive (PFS marcado como «No aplica»). Sin cálculo de costo previo.'
+}
+
+export const mensajeSinDiferencial = (motivo) => {
+  if (motivo === 'falta_pfs_actual') {
+    return 'Falta el PFS alcanzado con el tratamiento actual para calcular el diferencial.'
+  }
+  return 'Paciente naive (sin tratamiento previo). No hay base de comparación; solo se proyecta el costo total del propuesto.'
+}
+
 // Concepto de una valoración interdisciplinaria según su estado
 const hcValoracion = (valorado, concepto) => {
   const c = (concepto ?? '').toString().trim()

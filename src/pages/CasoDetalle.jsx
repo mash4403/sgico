@@ -1,7 +1,10 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { formatDate, generarTextoHistoriaClinica } from '../lib/utils'
+import {
+  formatDate, generarTextoHistoriaClinica,
+  mensajeCostoPrevio, mensajeSinDiferencial,
+} from '../lib/utils'
 import { copiarTextoAlPortapapeles } from '../lib/clipboard'
 import toast from 'react-hot-toast'
 import {
@@ -422,6 +425,7 @@ export default function CasoDetalle() {
 function ProyeccionCostosSection({ proyeccion }) {
   const p = proyeccion
   const naive = p.diferencial?.es_naive
+  const motivo = p.diferencial?.motivo_sin_diferencial
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border-2 border-blue-300 mb-6 p-6 print:shadow-none print:border print:rounded-none print:break-inside-avoid">
@@ -444,7 +448,7 @@ function ProyeccionCostosSection({ proyeccion }) {
           <div className="text-xs font-bold text-slate-700 uppercase mb-3">🩺 Tratamiento actual</div>
           {p.actual?.pfs_meses == null ? (
             <div className="text-sm text-slate-500 italic py-3">
-              Paciente naive (PFS marcado como &quot;No aplica&quot;). Sin cálculo de costo previo.
+              {mensajeCostoPrevio(motivo)}
             </div>
           ) : (
             <>
@@ -492,7 +496,7 @@ function ProyeccionCostosSection({ proyeccion }) {
         </div>
         {naive ? (
           <div className="text-sm text-slate-700 italic">
-            Paciente naive (sin tratamiento previo). Se proyecta el costo total del propuesto sin base de comparación.
+            {mensajeSinDiferencial(motivo)}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
