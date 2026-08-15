@@ -36,14 +36,14 @@ const tipoLabel = {
 }
 
 const tipoColor = {
-  post_comite: '#f59e0b',
-  trimestral_1: '#3b82f6',
-  trimestral_2: '#06b6d4',
-  trimestral_3: '#8b5cf6',
-  trimestral_4: '#ec4899',
-  semestral: '#22c55e',
-  anual: '#94a3b8',
-  ad_hoc: '#64748b',
+  post_comite: '#B9832F',
+  trimestral_1: '#156573',
+  trimestral_2: '#35C9B6',
+  trimestral_3: '#0E9E8C',
+  trimestral_4: '#D9A44E',
+  semestral: '#0E4C57',
+  anual: '#6E8A90',
+  ad_hoc: '#A9BEC2',
 }
 
 const estadoIcon = {
@@ -53,10 +53,10 @@ const estadoIcon = {
   no_aplica: XCircle,
 }
 const estadoColor = {
-  pendiente: '#f59e0b',
-  vencido: '#ef4444',
-  realizado: '#22c55e',
-  no_aplica: '#94a3b8',
+  pendiente: '#B9832F',
+  vencido: '#D9534F',
+  realizado: '#0E9E8C',
+  no_aplica: '#6E8A90',
 }
 
 export default function Seguimientos() {

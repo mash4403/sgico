@@ -2,8 +2,9 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
   LayoutDashboard, FolderOpen, ClipboardCheck,
-  ClipboardPlus, LogOut, Activity
+  ClipboardPlus, LogOut
 } from 'lucide-react'
+import ElCircuito from './ElCircuito'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -23,18 +24,14 @@ export default function Layout({ children, session }) {
   return (
     <div className="min-h-screen flex">
       {/* Sidebar */}
-      <aside className="w-60 border-r border-white/5 flex flex-col" 
-             style={{ background: 'rgba(255,255,255,0.02)' }}>
+      <aside className="w-60 border-r border-niebla/15 flex flex-col bg-tinta-2">
         {/* Logo */}
-        <div className="p-5 border-b border-white/5">
+        <div className="p-5 border-b border-niebla/15">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-white"
-                 style={{ background: 'linear-gradient(135deg, #3b82f6, #06b6d4)' }}>
-              <Activity size={18} />
-            </div>
+            <ElCircuito size={34} />
             <div>
-              <div className="font-bold text-sm tracking-tight">SGICO</div>
-              <div className="text-[10px] text-gray-500 tracking-wider">COMITÉ ONCOLÓGICO</div>
+              <div className="font-display font-bold text-sm tracking-tight text-hueso">SGICO</div>
+              <div className="text-[10px] font-mono text-niebla-oscura uppercase tracking-[0.2em]">Comité Oncológico</div>
             </div>
           </div>
         </div>
@@ -44,10 +41,10 @@ export default function Layout({ children, session }) {
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} end
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                  isActive 
-                    ? 'bg-blue-500/10 text-blue-400 font-medium' 
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${
+                  isActive
+                    ? 'bg-pulso/10 text-pulso font-medium'
+                    : 'text-niebla hover:text-hueso hover:bg-hueso/5'
                 }`
               }>
               <Icon size={18} />
@@ -57,15 +54,18 @@ export default function Layout({ children, session }) {
         </nav>
 
         {/* User */}
-        <div className="p-4 border-t border-white/5">
-          <div className="text-xs text-gray-500 truncate mb-2">
+        <div className="p-4 border-t border-niebla/15">
+          <div className="text-xs text-niebla-oscura truncate mb-2">
             {session?.user?.email}
           </div>
           <button onClick={handleLogout}
-            className="flex items-center gap-2 text-sm text-gray-400 hover:text-red-400 transition-colors">
+            className="flex items-center gap-2 text-sm text-niebla hover:text-peligro transition-colors">
             <LogOut size={16} />
             Cerrar sesión
           </button>
+          <div className="mt-4 text-[10px] text-niebla-oscura">
+            <span className="nv" style={{ fontSize: '0.75rem' }}>Nodo<i>via</i></span>
+          </div>
         </div>
       </aside>
 

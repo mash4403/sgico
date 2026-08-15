@@ -9,8 +9,8 @@ const DECISIONES = ['pendiente', 'aprobado', 'rechazado', 'modificado', 'diferid
 const ESTADOS = ['activo', 'en_tratamiento', 'completado', 'progresion', 'cancelado', 'fallecido', 'perdido']
 
 const decisionColor = {
-  pendiente: '#f59e0b', aprobado: '#22c55e', rechazado: '#ef4444',
-  modificado: '#3b82f6', diferido: '#94a3b8', pendiente_info: '#f59e0b',
+  pendiente: '#B9832F', aprobado: '#0E9E8C', rechazado: '#D9534F',
+  modificado: '#156573', diferido: '#6E8A90', pendiente_info: '#B9832F',
 }
 
 export default function Casos() {

@@ -2,42 +2,99 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #0a0e1a;
-  color: #e2e8f0;
-  margin: 0;
+/* ============================================================
+   NODOVIA — tokens de marca (manual v1.0). Valores exactos.
+   ============================================================ */
+:root {
+  --tinta:          #0C1A21;
+  --tinta-2:        #10242C;
+  --petroleo:       #0E4C57;
+  --petroleo-claro: #156573;
+  --pulso:          #35C9B6;
+  --pulso-oscuro:   #0E9E8C;
+  --bronce:         #B9832F;
+  --bronce-claro:   #D9A44E;
+  --hueso:          #F3EFE7;
+  --niebla:         #A9BEC2;
+  --niebla-oscura:  #6E8A90;
+  --peligro:        #D9534F; /* excepción semántica universal (alarma) — fuera de paleta de marca por diseño; solo para riesgo/error real */
+
+  --display: 'Space Grotesk', system-ui, sans-serif;
+  --body:    'Manrope', system-ui, sans-serif;
+  --data:    'JetBrains Mono', monospace;
 }
 
-.font-mono {
-  font-family: 'JetBrains Mono', monospace;
+body {
+  font-family: var(--body);
+  color: var(--hueso);
+  margin: 0;
+  /* fondo oscuro nunca plano: glows radiales de pulso/petróleo/bronce */
+  background-color: var(--tinta);
+  background-image:
+    radial-gradient(60rem 60rem at 85% -10%, rgba(53, 201, 182, 0.07), transparent 60%),
+    radial-gradient(50rem 50rem at -10% 20%, rgba(14, 76, 87, 0.10), transparent 60%),
+    radial-gradient(40rem 40rem at 50% 120%, rgba(185, 131, 47, 0.05), transparent 60%);
+  background-attachment: fixed;
 }
+
+/* Utilidades tipográficas de marca */
+.font-display { font-family: var(--display); }
+.font-mono { font-family: var(--data); }
+h1, h2, h3 { font-family: var(--display); }
+
+/* Eyebrow / etiqueta: mono, uppercase, tracking amplio */
+.eyebrow {
+  font-family: var(--data);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.7rem;
+  color: var(--niebla-oscura);
+}
+
+/* Wordmark en texto corrido: Nodo<i>via</i> */
+.nv { font-family: var(--display); font-weight: 600; color: var(--hueso); }
+.nv i { font-style: normal; color: var(--pulso); }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: rgba(169, 190, 194, 0.18); border-radius: 3px; }
 
-/* Pulse animation for alerts */
+/* Foco visible de marca (accesibilidad AA) */
+:focus-visible {
+  outline: 2px solid var(--pulso);
+  outline-offset: 3px;
+}
+
+/* Latido del nodo Resultado / señales vivas */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
 .animate-pulse-dot { animation: pulse-dot 2s infinite; }
 
-/* Form inputs */
+/* Inputs base (superficies de marca sobre oscuro) */
 input, select, textarea {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 8px;
+  background: rgba(243, 239, 231, 0.04);
+  border: 1px solid rgba(169, 190, 194, 0.16);
+  border-radius: 10px;
   padding: 8px 12px;
-  color: #e2e8f0;
+  color: var(--hueso);
   font-size: 14px;
   width: 100%;
   outline: none;
   transition: border-color 0.2s;
 }
 input:focus, select:focus, textarea:focus {
-  border-color: #3b82f6;
+  border-color: var(--pulso);
 }
-select option { background: #1f2937; color: #e2e8f0; }
+select option { background: var(--tinta-2); color: var(--hueso); }
+
+/* prefers-reduced-motion: desactivar toda animación */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
