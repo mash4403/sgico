@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { formatCOP } from '@/lib/utils'
-import { 
-  AlertTriangle, Users, Clock, TrendingDown, Shield, 
-  Activity, Heart, XCircle, RefreshCw 
+import {
+  AlertTriangle, Users, Clock, TrendingDown, Shield,
+  Activity, Heart, XCircle, RefreshCw, Stethoscope, Target, TrendingUp
 } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 // Metric card component
 function MetricCard({ label, value, sub, icon: Icon, color = '#3b82f6' }) {
@@ -20,6 +21,33 @@ function MetricCard({ label, value, sub, icon: Icon, color = '#3b82f6' }) {
         </div>
         {Icon && <Icon size={20} style={{ color }} className="opacity-50" />}
       </div>
+    </div>
+  )
+}
+
+// Comparación real vs. estudio pivotal (barra de cumplimiento)
+function ComparaBar({ label, real, esperado, ratio, unidad = '' }) {
+  const r = real == null ? null : Number(real)
+  const e = esperado == null ? null : Number(esperado)
+  const rr = ratio != null ? Number(ratio) : (r != null && e ? r / e : null)
+  const color = rr == null ? '#64748b' : rr >= 0.9 ? '#22c55e' : rr >= 0.5 ? '#f59e0b' : '#ef4444'
+  const pct = rr == null ? 0 : Math.min(100, Math.max(0, rr * 100))
+  return (
+    <div className="rounded-lg p-4 border border-white/5" style={{ background: 'rgba(255,255,255,0.02)' }}>
+      <p className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">{label}</p>
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-bold" style={{ color: '#f1f5f9' }}>
+          {r == null ? '—' : r}{r == null ? '' : unidad}
+        </span>
+        <span className="text-xs text-gray-500">vs {e == null ? '—' : `${e}${unidad}`} estudio</span>
+      </div>
+      <div className="h-1.5 rounded-full mt-3 overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+        <div className="h-full rounded-full"
+          style={{ width: `${pct}%`, background: color, transition: 'width 1s ease' }} />
+      </div>
+      <p className="text-[11px] mt-1.5 font-semibold" style={{ color }}>
+        {rr == null ? 'Sin datos aún' : `${Math.round(rr * 100)}% del estudio`}
+      </p>
     </div>
   )
 }
@@ -49,9 +77,15 @@ function Gauge({ value, label, color, size = 100 }) {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [stats, setStats] = useState(null)
   const [mensual, setMensual] = useState([])
   const [alertas, setAlertas] = useState([])
+  const [efectividad, setEfectividad] = useState(null)
+  const [cumplimiento, setCumplimiento] = useState(null)
+  const [impacto, setImpacto] = useState([])
+  const [kri, setKri] = useState([])
+  const [pacientesDes, setPacientesDes] = useState([])
   const [loading, setLoading] = useState(true)
 
   const fetchData = async () => {
@@ -75,12 +109,29 @@ export default function Dashboard() {
         .select('*', { count: 'exact', head: true })
         .in('estado', ['pendiente', 'vencido'])
 
+      // MVP calidad — indicadores de desenlaces (migración 008)
+      const [efc, cmp, imp, riesgo, pacDes] = await Promise.all([
+        supabase.from('vw_kpi_efectividad').select('*').maybeSingle(),
+        supabase.from('vw_kpi_cumplimiento').select('*').maybeSingle(),
+        supabase.from('vw_kpi_impacto_comite_mensual').select('*').limit(12),
+        supabase.from('vw_kri_costo_efectividad').select('*').limit(10),
+        supabase.from('vw_desenlace_caso')
+          .select('caso_id, paciente_nombre, protocolo, decision, mejor_respuesta, respondedor, pfs_real_meses, pfs_esperado, os_real_meses, os_esperado, costo_real_acumulado')
+          .in('decision', ['aprobado', 'modificado'])
+          .order('caso_id'),
+      ])
+
       setStats({
         ...(dashData || {}),
         seguimientos_pendientes: pendCount || 0,
       })
       setMensual(monthData || [])
       setAlertas(alertData || [])
+      setEfectividad(efc.data || null)
+      setCumplimiento(cmp.data || null)
+      setImpacto(imp.data || [])
+      setKri(riesgo.data || [])
+      setPacientesDes(pacDes.data || [])
     } catch (err) {
       console.error('Error loading dashboard:', err)
       // Fallback con datos de demo si no hay conexión
@@ -112,6 +163,12 @@ export default function Dashboard() {
 
   const prioridadColor = { alta: '#ef4444', media: '#f59e0b', baja: '#22c55e' }
 
+  // MVP calidad — accesores seguros ante vistas vacías
+  const ef = efectividad || {}
+  const cmp = cumplimiento || {}
+  const ultImpacto = impacto.length ? impacto[impacto.length - 1] : {}
+  const ahorroAcum = Number(ultImpacto.ahorro_acumulado || 0)
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -138,6 +195,156 @@ export default function Dashboard() {
           sub="Diferencia pre/post" icon={TrendingDown} color="#22c55e" />
         <MetricCard label="Seguimientos pendientes" value={s.seguimientos_pendientes || 0}
           sub={`${s.fallecidos || 0} fallecidos`} icon={AlertTriangle} color="#f59e0b" />
+      </div>
+
+      {/* ── MVP Calidad: efectividad real vs. estudio pivotal ── */}
+      <div className="rounded-xl p-5 border border-white/5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <Target size={14} className="text-gray-500" />
+          <h3 className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">
+            Efectividad real vs. estudio pivotal
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <ComparaBar label="PFS promedio" real={ef.pfs_real_prom} esperado={ef.pfs_esperado_prom} ratio={ef.ratio_pfs} unidad="m" />
+          <ComparaBar label="OS promedio" real={ef.os_real_prom} esperado={ef.os_esperado_prom} ratio={ef.ratio_os} unidad="m" />
+          <ComparaBar label="Respuesta objetiva (ORR)" real={ef.orr_real_pct} esperado={ef.orr_esperada_prom} unidad="%" />
+        </div>
+        <div className="flex justify-around mt-5 pt-4 border-t border-white/5">
+          <Gauge value={Number(cmp.cumplimiento_seguimiento_pct || 0)} label="Cumplimiento seguimiento" color="#06b6d4" />
+          <Gauge value={Number(cmp.ejecucion_decision_pct || 0)} label="Ejecución de decisión" color="#22c55e" />
+        </div>
+      </div>
+
+      {/* ── MVP: desenlace por paciente ── */}
+      <div className="rounded-xl p-5 border border-white/5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <Users size={14} className="text-gray-500" />
+          <h3 className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">
+            Desenlace por paciente ({pacientesDes.length})
+          </h3>
+        </div>
+        {pacientesDes.length === 0 ? (
+          <p className="text-sm text-gray-600 py-4 text-center">Sin pacientes en tratamiento con desenlace</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[10px] text-gray-500 uppercase tracking-wider">
+                  <th className="text-left font-semibold py-2 pr-3">Paciente</th>
+                  <th className="text-left font-semibold py-2 pr-3">Protocolo</th>
+                  <th className="text-center font-semibold py-2 px-2">Resp.</th>
+                  <th className="text-right font-semibold py-2 px-2">PFS real/esp</th>
+                  <th className="text-right font-semibold py-2 px-2">OS real/esp</th>
+                  <th className="text-right font-semibold py-2 px-2">Costo real</th>
+                  <th className="text-right font-semibold py-2 pl-2">% PFS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pacientesDes.map(p => {
+                  const ratio = (p.pfs_real_meses != null && p.pfs_esperado)
+                    ? p.pfs_real_meses / p.pfs_esperado : null
+                  const color = ratio == null ? '#64748b'
+                    : ratio >= 0.9 ? '#22c55e' : ratio >= 0.5 ? '#f59e0b' : '#ef4444'
+                  return (
+                    <tr key={p.caso_id}
+                        onClick={() => navigate(`/casos/${p.caso_id}`)}
+                        title="Ver caso"
+                        className="border-t border-white/5 cursor-pointer hover:bg-white/5 transition-colors">
+                      <td className="py-2 pr-3 text-gray-200">{p.paciente_nombre || `#${p.caso_id}`}</td>
+                      <td className="py-2 pr-3 text-gray-500 truncate max-w-[160px]">{p.protocolo || '—'}</td>
+                      <td className="py-2 px-2 text-center">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-white/5 text-gray-300">
+                          {p.mejor_respuesta || '—'}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-300">
+                        {p.pfs_real_meses ?? '—'} / {p.pfs_esperado ?? '—'}m
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-300">
+                        {p.os_real_meses ?? '—'} / {p.os_esperado ?? '—'}m
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono text-gray-400">
+                        {formatCOP(p.costo_real_acumulado || 0)}
+                      </td>
+                      <td className="py-2 pl-2 text-right font-semibold" style={{ color }}>
+                        {ratio == null ? '—' : `${Math.round(ratio * 100)}%`}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── MVP: impacto económico del comité ── */}
+      {impacto.length > 0 && (
+        <div className="rounded-xl p-5 border border-white/5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+          <div className="flex items-center gap-2 mb-4">
+            {ahorroAcum >= 0
+              ? <TrendingDown size={14} className="text-gray-500" />
+              : <TrendingUp size={14} className="text-gray-500" />}
+            <h3 className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">
+              Impacto económico del comité
+            </h3>
+          </div>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <MetricCard label={ahorroAcum >= 0 ? 'Ahorro acumulado' : 'Sobrecosto acumulado'}
+              value={formatCOP(Math.abs(ahorroAcum))} sub="Rechazos + ajustes de costo"
+              icon={ahorroAcum >= 0 ? TrendingDown : TrendingUp} color={ahorroAcum >= 0 ? '#22c55e' : '#ef4444'} />
+            <MetricCard label="Total aprobado acumulado" value={formatCOP(Number(ultImpacto.total_aprobado_acumulado || 0))}
+              sub="Presupuesto comprometido" icon={Shield} color="#3b82f6" />
+          </div>
+          <ResponsiveContainer width="100%" height={180}>
+            <AreaChart data={impacto}>
+              <XAxis dataKey="mes" tick={{ fill: '#64748b', fontSize: 11 }}
+                tickFormatter={v => new Date(v).toLocaleDateString('es-CO', { month: 'short' })} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={v => `${(v / 1e6).toFixed(0)}M`} />
+              <Tooltip contentStyle={{ background: '#1f2937', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }}
+                labelStyle={{ color: '#94a3b8' }} formatter={v => formatCOP(v)} />
+              <Area type="monotone" dataKey="ahorro_acumulado" name="Ahorro acumulado"
+                stroke="#22c55e" fill="#22c55e" fillOpacity={0.15} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* ── MVP: worklist de riesgo costo/efectividad ── */}
+      <div className="rounded-xl p-5 border border-white/5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+        <div className="flex items-center gap-2 mb-3">
+          <Stethoscope size={14} className="text-gray-500" />
+          <h3 className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">
+            Riesgo — baja efectividad / toxicidad ({kri.length})
+          </h3>
+        </div>
+        <div className="space-y-2 max-h-56 overflow-y-auto">
+          {kri.length === 0 ? (
+            <p className="text-sm text-gray-600 py-4 text-center">Sin casos en riesgo</p>
+          ) : (
+            kri.map(k => (
+              <div key={k.caso_id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-white/5"
+                   style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <span className="text-sm font-mono text-gray-400">#{k.caso_id}</span>
+                <span className="text-sm flex-1 truncate">{k.protocolo || 'Sin protocolo'}</span>
+                <span className="text-xs text-gray-500">
+                  PFS {k.pfs_real_meses ?? '—'}/{k.pfs_esperado ?? '—'}m
+                </span>
+                {k.mejor_respuesta && (
+                  <span className="text-[11px] px-2 py-0.5 rounded bg-white/5 text-gray-400">{k.mejor_respuesta}</span>
+                )}
+                {k.baja_efectividad && (
+                  <span className="text-[11px] px-2 py-0.5 rounded" style={{ background: '#ef444420', color: '#f87171' }}>baja efectividad</span>
+                )}
+                {k.toxicidad_severa && (
+                  <span className="text-[11px] px-2 py-0.5 rounded" style={{ background: '#f59e0b20', color: '#fbbf24' }}>toxicidad</span>
+                )}
+                <span className="text-xs text-gray-500 font-mono">{formatCOP(k.costo_real_acumulado || 0)}</span>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {/* Gauges + Alerts */}

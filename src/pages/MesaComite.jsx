@@ -58,7 +58,16 @@ const emptyForm = {
   decision: '',
   intencion: '',
   decision_final: '',
+  costo_aprobado: '',   // costo que el comité aprobó (casos_comite.costo_molecula_aprobada)
   participantes: [],
+}
+
+const esAprobacionFinal = (d) => d === 'aprobado' || d === 'modificado'
+
+// Costo aprobado inicial: el ya aprobado, o el propuesto como respaldo (string para el input)
+const costoAprobadoInicial = (caso) => {
+  const v = caso?.costo_molecula_aprobada ?? caso?.costo_estimado
+  return v == null ? '' : String(v)
 }
 
 export default function MesaComite() {
@@ -100,12 +109,17 @@ export default function MesaComite() {
           decision:        actaRes.data.decision || '',
           intencion:       actaRes.data.intencion || '',
           decision_final:  actaRes.data.decision_final || '',
+          costo_aprobado:  costoAprobadoInicial(casoRes.data),
           participantes:   Array.isArray(actaRes.data.participantes) ? actaRes.data.participantes : [],
         })
       } else {
         // Acta nueva: pre-llenar el resumen con los datos del caso
         setActa(null)
-        setForm({ ...emptyForm, resumen_clinico: generarResumenClinico(casoRes.data) })
+        setForm({
+          ...emptyForm,
+          resumen_clinico: generarResumenClinico(casoRes.data),
+          costo_aprobado: costoAprobadoInicial(casoRes.data),
+        })
       }
     } catch (e) {
       toast.error(`No se pudo cargar la mesa de comité: ${e.message}`)
@@ -118,6 +132,21 @@ export default function MesaComite() {
   const readOnly = acta?.firmada === true
 
   const setField = (key, value) => setForm(f => ({ ...f, [key]: value }))
+
+  // Persiste el costo aprobado en el caso. Si la decisión no es una
+  // aprobación (o el valor es inválido), se limpia a null.
+  async function persistirCostoAprobado() {
+    const raw = form.costo_aprobado
+    const costo = esAprobacionFinal(form.decision_final)
+      && raw !== '' && raw != null && !isNaN(Number(raw))
+        ? Number(raw)
+        : null
+    const { error } = await supabase
+      .from('casos_comite')
+      .update({ costo_molecula_aprobada: costo })
+      .eq('id', Number(id))
+    if (error) throw error
+  }
 
   function handleRegenerarResumen() {
     if (!window.confirm('¿Sobrescribir el resumen actual con los datos más recientes del caso?')) return
@@ -167,6 +196,7 @@ export default function MesaComite() {
         .single()
       if (error) throw error
       setActa(data)
+      await persistirCostoAprobado()
       toast.success('Borrador guardado')
     } catch (e) {
       toast.error(e.message)
@@ -186,6 +216,7 @@ export default function MesaComite() {
         .from('actas_comite')
         .upsert(buildPayload(true), { onConflict: 'caso_id' })
       if (error) throw error
+      await persistirCostoAprobado()
       toast.success('Acta firmada y caso actualizado')
       await cargarDatos()
     } catch (e) {
@@ -316,6 +347,23 @@ export default function MesaComite() {
                 {DECISION_FINAL_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
+            {esAprobacionFinal(form.decision_final) && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">
+                  Costo aprobado por el comité <span className="normal-case text-slate-500">(por ciclo, COP)</span>
+                </label>
+                <input
+                  type="number" min="0"
+                  value={form.costo_aprobado}
+                  onChange={e => setField('costo_aprobado', e.target.value)}
+                  disabled={readOnly}
+                  placeholder={caso.costo_estimado != null ? `Propuesto: ${caso.costo_estimado}` : 'Ej. 2500000'}
+                  className={inputBase} />
+                <p className="text-xs text-slate-500 mt-1">
+                  Precargado con el costo propuesto. Cámbialo solo si el comité aprobó un monto distinto — mayor o menor.
+                </p>
+              </div>
+            )}
             <div>
               <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Decisión (narrativa)</label>
               <textarea
