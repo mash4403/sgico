@@ -9,8 +9,8 @@ const DECISIONES = ['pendiente', 'aprobado', 'rechazado', 'modificado', 'diferid
 const ESTADOS = ['activo', 'en_tratamiento', 'completado', 'progresion', 'cancelado', 'fallecido', 'perdido']
 
 const decisionColor = {
-  pendiente: '#B9832F', aprobado: '#0E9E8C', rechazado: '#D9534F',
-  modificado: '#156573', diferido: '#6E8A90', pendiente_info: '#B9832F',
+  pendiente: '#D9A44E', aprobado: '#17C6AE', rechazado: '#EC6863',
+  modificado: '#29ADCB', diferido: '#93ABB1', pendiente_info: '#D9A44E',
 }
 
 export default function Casos() {
@@ -151,10 +151,10 @@ export default function Casos() {
                     <td className="px-4 py-3 text-sm">{c.molecula_propuesta || '—'}</td>
                     <td className="px-4 py-3">
                       <span className="text-[11px] font-semibold px-2.5 py-1 rounded"
-                        style={{ 
-                          background: `${decisionColor[c.decision]}15`,
+                        style={{
+                          background: `${decisionColor[c.decision]}2E`,
                           color: decisionColor[c.decision],
-                          border: `1px solid ${decisionColor[c.decision]}30`
+                          border: `1px solid ${decisionColor[c.decision]}70`
                         }}>
                         {c.decision?.toUpperCase()}
                       </span>
