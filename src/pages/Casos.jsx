@@ -33,6 +33,7 @@ export default function Casos() {
         protocolos(nombre, estudio_pivotal),
         diagnosticos(cie10, descripcion, estadio)
       `)
+      .eq('presentado', true)   // los agendados viven en /agenda, no aquí
       .order('fecha_solicitud', { ascending: false })
       .limit(100)
 

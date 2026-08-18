@@ -1,14 +1,20 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { mensajeCostoPrevio, mensajeSinDiferencial } from '../lib/utils'
 import toast from 'react-hot-toast'
 import {
-  ChevronLeft, ChevronRight, Save, Send, Check,
+  ChevronLeft, ChevronRight, Send, Check,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
   Pill, BookOpen, MessageSquareQuote, DollarSign, Paperclip, FileCheck2,
-  Users,
+  Users, CalendarPlus, X,
 } from 'lucide-react'
+
+const TIPO_COMITE_OPTS = [
+  { value: 'tumor_solido', label: 'Tumor sólido' },
+  { value: 'hematologico', label: 'Hematológico' },
+  { value: 'multidisciplinario', label: 'Multidisciplinario' },
+]
 
 const STEPS = [
   { id: 'admin',       label: 'Administrativo',  icon: Building2 },
@@ -27,10 +33,31 @@ const STEPS = [
 const DRAFT_KEY = 'sgico_presentacion_draft'
 const NA = '__NA__'
 
-// Fuente de verdad del paciente naive: línea 0 = nunca tratado.
-// Ojo: Number('') === 0, por eso se descarta el vacío explícitamente.
-const esPacienteNaive = (linea) =>
-  linea !== '' && linea !== null && linea !== undefined && Number(linea) === 0
+// Contexto terapéutico (enum clínico). Neo/adyuvancia NO son líneas metastásicas.
+const CONTEXTO_OPTS = [
+  { value: 'naive',                 label: 'Naive / sin tratamiento previo' },
+  { value: 'neoadyuvancia',         label: 'Neoadyuvancia' },
+  { value: 'adyuvancia',            label: 'Adyuvancia' },
+  { value: 'metastasica_1',         label: 'Primera línea metastásica' },
+  { value: 'metastasica_2',         label: 'Segunda línea metastásica' },
+  { value: 'metastasica_3',         label: 'Tercera línea metastásica' },
+  { value: 'metastasica_posterior', label: 'Líneas metastásicas posteriores' },
+]
+
+// Naive = sin tratamiento previo (fuente de verdad para bloquear tratamiento actual)
+const esPacienteNaive = (ctx) => ctx === 'naive'
+
+// Deriva linea_actual (integer) desde el contexto, por compatibilidad con datos previos.
+const contextoALinea = (ctx) => {
+  switch (ctx) {
+    case 'naive': return 0
+    case 'metastasica_1': return 1
+    case 'metastasica_2': return 2
+    case 'metastasica_3': return 3
+    case 'metastasica_posterior': return 4
+    default: return null // neo/adyuvancia no son líneas metastásicas
+  }
+}
 
 const toIntOrNull = (v) => {
   if (v === '' || v === null || v === undefined) return null
@@ -68,10 +95,10 @@ const initialState = {
   // 5. Estudios
   estudios_imagenes: '', estudios_laboratorio: '',
   estudios_patologia: '', estudios_moleculares: '',
-  fecha_ultimo_estudio: '',
+  fecha_patologia: '', fecha_moleculares: '',
 
   // 6. Tratamientos
-  linea_actual: '',
+  contexto_actual: '',
   tratamiento_actual: '',                  // ← antes: molecula_previa
   quimioterapia_lineas_previas: '',        // ← campo único combinado
   tratamiento_quirurgico: '',
@@ -95,7 +122,7 @@ const initialState = {
   // 8. Pregunta
   pregunta_comite: '', tratamiento_propuesto: '',
   justificacion_clinica: '',
-  linea_propuesta: '',
+  contexto_propuesto: '',
 
   // 9. Costos por ciclo + PFS/OS del actual
   costo_ciclo_actual: '', dias_ciclo_actual: '21',
@@ -110,11 +137,20 @@ const initialState = {
 
 export default function PresentacionComite() {
   const navigate = useNavigate()
+  const { id: editIdParam } = useParams()
+  const [editId, setEditId] = useState(editIdParam ? Number(editIdParam) : null)
   const [step, setStep] = useState(0)
   const [data, setData] = useState(initialState)
   const [errors, setErrors] = useState({})
-  const [saving, setSaving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // Agendar para comité
+  const [showAgendar, setShowAgendar] = useState(false)
+  const [sesiones, setSesiones] = useState([])
+  const [sesionSel, setSesionSel] = useState('nueva')
+  const [nuevaFecha, setNuevaFecha] = useState('')
+  const [nuevoTipo, setNuevoTipo] = useState('tumor_solido')
+  const [agendando, setAgendando] = useState(false)
 
   const [sedes, setSedes] = useState([])
   const [eps, setEps] = useState([])
@@ -124,6 +160,20 @@ export default function PresentacionComite() {
 
   useEffect(() => {
     cargarCatalogos()
+    // Modo edición: rehidratar un caso agendado desde su borrador_data (sin pérdida)
+    if (editIdParam) {
+      ;(async () => {
+        const { data: caso, error } = await supabase
+          .from('casos_comite').select('borrador_data').eq('id', editIdParam).single()
+        if (!error && caso?.borrador_data) {
+          const bd = caso.borrador_data
+          if (bd?.ecog === NA) bd.ecog = ''
+          setData(prev => ({ ...prev, ...bd }))
+          toast.success('Caso agendado cargado', { icon: '📂' })
+        }
+      })()
+      return
+    }
     const draft = localStorage.getItem(DRAFT_KEY)
     if (draft) {
       try {
@@ -135,14 +185,15 @@ export default function PresentacionComite() {
         toast.success('Borrador recuperado', { icon: '📝' })
       } catch { /* ignore */ }
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (editIdParam) return // en modo edición el caso vive en BD, no en localStorage
     const t = setTimeout(() => {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({ data, step }))
     }, 800)
     return () => clearTimeout(t)
-  }, [data, step])
+  }, [data, step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargarCatalogos() {
     const [s, e, m, g, p] = await Promise.all([
@@ -175,16 +226,16 @@ export default function PresentacionComite() {
     })
   }
 
-  // linea_actual = 0 implica paciente naive: los campos del tratamiento actual
-  // se autocompletan (NA en PFS/OS mantiene es_naive en calcularProyeccion) y se
-  // limpian si el usuario se corrige a una línea > 0.
-  const updateLineaActual = (value) => {
-    if (esPacienteNaive(value) === esPacienteNaive(data.linea_actual)) {
-      update('linea_actual', value)
+  // contexto 'naive' implica paciente sin tratamiento previo: los campos del
+  // tratamiento actual se autocompletan (NA en PFS/OS mantiene es_naive en
+  // calcularProyeccion) y se limpian si el usuario se corrige a otro contexto.
+  const updateContextoActual = (value) => {
+    if (esPacienteNaive(value) === esPacienteNaive(data.contexto_actual)) {
+      update('contexto_actual', value)
       return
     }
     updateMany({
-      linea_actual: value,
+      contexto_actual: value,
       ...(esPacienteNaive(value)
         ? { costo_ciclo_actual: '0', dias_ciclo_actual: '0',
             pfs_actual_meses: NA, os_actual_meses: NA }
@@ -246,12 +297,12 @@ export default function PresentacionComite() {
         break
       case 4:
         ;['estudios_imagenes','estudios_laboratorio','estudios_patologia',
-          'estudios_moleculares','fecha_ultimo_estudio'].forEach(f => req(f))
-        noFuture('fecha_ultimo_estudio')
+          'estudios_moleculares'].forEach(f => req(f))
+        noFuture('fecha_patologia'); noFuture('fecha_moleculares')
         break
       case 5:
-        // Línea actual y tratamiento actual son requeridos
-        req('linea_actual'); req('tratamiento_actual')
+        // Contexto terapéutico y tratamiento actual son requeridos
+        req('contexto_actual'); req('tratamiento_actual')
         // El resto se permiten "No aplica"
         ;['quimioterapia_lineas_previas','tratamiento_quirurgico',
           'tratamiento_rt','tratamiento_dirigido','respuesta_previa']
@@ -270,7 +321,7 @@ export default function PresentacionComite() {
         break
       case 9:
         // El paciente naive no tiene tratamiento actual que costear
-        if (!esPacienteNaive(data.linea_actual)) {
+        if (!esPacienteNaive(data.contexto_actual)) {
           req('costo_ciclo_actual'); req('dias_ciclo_actual')
           req('pfs_actual_meses'); req('os_actual_meses')
         }
@@ -311,13 +362,100 @@ export default function PresentacionComite() {
     setStep(idx)
   }
 
-  const guardarBorrador = () => {
-    setSaving(true)
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ data, step }))
-    setTimeout(() => {
-      setSaving(false)
-      toast.success('Borrador guardado')
-    }, 400)
+  // Busca el paciente por documento o lo crea. Devuelve su id.
+  async function obtenerPacienteId() {
+    const { data: pac } = await supabase
+      .from('pacientes').select('id').eq('documento', data.documento).maybeSingle()
+    if (pac?.id) return pac.id
+    const { data: nuevo, error } = await supabase
+      .from('pacientes')
+      .insert({
+        documento: data.documento,
+        tipo_documento: data.tipo_documento,
+        nombre: data.nombre,
+        fecha_nacimiento: data.fecha_nacimiento,
+        genero: data.genero,
+        telefono1: clean(data.telefono1),
+        eps_id: toIntOrNull(data.eps_id),
+        sede_id: toIntOrNull(data.sede_id),
+      })
+      .select('id').single()
+    if (error) throw error
+    return nuevo.id
+  }
+
+  // Abre el modal de agendar tras validar el mínimo (Administrativo + Demográficos)
+  async function abrirAgendar() {
+    for (const i of [0, 1]) {
+      const errs = validateStep(i)
+      if (!stepIsValid(errs)) {
+        setStep(i)
+        toast.error(`Para agendar, completa: ${STEPS[i].label}`)
+        return
+      }
+    }
+    const hoy = new Date().toISOString().slice(0, 10)
+    const { data: ses } = await supabase
+      .from('sesiones_comite').select('*').gte('fecha', hoy).order('fecha')
+    setSesiones(ses || [])
+    setSesionSel(ses && ses.length ? String(ses[0].id) : 'nueva')
+    setShowAgendar(true)
+  }
+
+  // Guarda/actualiza el caso como AGENDADO (presentado=false) en la sesión elegida
+  async function confirmarAgendar() {
+    setAgendando(true)
+    try {
+      let sesionId
+      if (sesionSel === 'nueva') {
+        if (!nuevaFecha) { toast.error('Elige la fecha del comité'); setAgendando(false); return }
+        const { data: nueva, error } = await supabase
+          .from('sesiones_comite')
+          .insert({ fecha: nuevaFecha, tipo_comite: nuevoTipo })
+          .select('id').single()
+        if (error) throw error
+        sesionId = nueva.id
+      } else {
+        sesionId = Number(sesionSel)
+      }
+
+      const pacienteId = await obtenerPacienteId()
+      const fila = {
+        paciente_id: pacienteId,
+        sede_id: toIntOrNull(data.sede_id),
+        medico_id: toIntOrNull(data.medico_id),
+        gestor_id: toIntOrNull(data.gestor_id),
+        protocolo_id: toIntOrNull(data.protocolo_id),
+        tipo_comite: data.tipo_comite,
+        prioridad: data.prioridad,
+        fecha_solicitud: data.fecha_solicitud,
+        motivo: clean(data.pregunta_comite),
+        decision: 'pendiente',
+        sesion_id: sesionId,
+        presentado: false,
+        borrador_data: data,
+      }
+
+      if (editId) {
+        const { error } = await supabase.from('casos_comite').update(fila).eq('id', editId)
+        if (error) throw error
+      } else {
+        const { data: ins, error } = await supabase
+          .from('casos_comite').insert(fila).select('id').single()
+        if (error) throw error
+        setEditId(ins.id)
+      }
+
+      setShowAgendar(false)
+      localStorage.removeItem(DRAFT_KEY)
+      toast.success('Caso agendado para comité', { icon: '📅' })
+      navigate('/agenda')
+    } catch (e) {
+      console.error('Error al agendar:', e)
+      toast.error(`Error al agendar: ${e.message}`)
+    } finally {
+      setAgendando(false)
+    }
   }
 
   const presentar = async () => {
@@ -334,30 +472,7 @@ export default function PresentacionComite() {
 
     setSubmitting(true)
     try {
-      const { data: pacExistente } = await supabase
-        .from('pacientes')
-        .select('id')
-        .eq('documento', data.documento)
-        .maybeSingle()
-
-      let pacienteId = pacExistente?.id
-      if (!pacienteId) {
-        const { data: nuevoPac, error: pacErr } = await supabase
-          .from('pacientes')
-          .insert({
-            documento: data.documento,
-            tipo_documento: data.tipo_documento,
-            nombre: data.nombre,
-            fecha_nacimiento: data.fecha_nacimiento,
-            genero: data.genero,
-            telefono1: clean(data.telefono1),
-            eps_id: toIntOrNull(data.eps_id),
-            sede_id: toIntOrNull(data.sede_id),
-          })
-          .select('id').single()
-        if (pacErr) throw pacErr
-        pacienteId = nuevoPac.id
-      }
+      const pacienteId = await obtenerPacienteId()
 
       const preguntaTexto = data.pregunta_comite
       const tratamientoTexto = data.tratamiento_propuesto
@@ -380,8 +495,10 @@ export default function PresentacionComite() {
         justificacion: justificacionTexto,
         molecula_propuesta: tratamientoTexto?.slice(0, 100) || null,
         molecula_previa: clean(data.tratamiento_actual)?.slice(0, 100) || null,
-        linea_actual: toIntOrNull(data.linea_actual),
-        linea_propuesta: toIntOrNull(data.linea_propuesta),
+        contexto_actual: data.contexto_actual || null,
+        contexto_propuesto: data.contexto_propuesto || null,
+        linea_actual: contextoALinea(data.contexto_actual),
+        linea_propuesta: contextoALinea(data.contexto_propuesto),
         // tratamiento_previo unifica todas las modalidades en texto
         tratamiento_previo: [
           data.quimioterapia_lineas_previas,
@@ -392,7 +509,7 @@ export default function PresentacionComite() {
 
         // Costos planos. El naive no tiene costo previo: null (sin dato), no 0,
         // para que no contamine los agregados.
-        costo_previo:    esPacienteNaive(data.linea_actual)
+        costo_previo:    esPacienteNaive(data.contexto_actual)
           ? null
           : toFloatOrNull(data.costo_ciclo_actual),
         costo_estimado:  toFloatOrNull(data.costo_ciclo_propuesto),
@@ -421,7 +538,8 @@ export default function PresentacionComite() {
         estudios_laboratorio: clean(data.estudios_laboratorio),
         estudios_patologia: clean(data.estudios_patologia),
         estudios_moleculares: clean(data.estudios_moleculares),
-        fecha_ultimo_estudio: cleanDate(data.fecha_ultimo_estudio),
+        fecha_patologia: cleanDate(data.fecha_patologia),
+        fecha_moleculares: cleanDate(data.fecha_moleculares),
 
         tratamiento_quirurgico: clean(data.tratamiento_quirurgico),
         // El nuevo campo combinado se mapea a tratamiento_qt para preservar BD
@@ -451,15 +569,28 @@ export default function PresentacionComite() {
         adjuntos: data.adjuntos,
       }
 
-      const { data: caso, error: casoErr } = await supabase
-        .from('casos_comite')
-        .insert(payload)
-        .select('id').single()
-      if (casoErr) throw casoErr
+      // Presentar = escribir columnas estructuradas + presentado=true.
+      // Si venía agendado (editId), se actualiza la fila; si no, se inserta.
+      let casoId
+      if (editId) {
+        const { error: casoErr } = await supabase
+          .from('casos_comite')
+          .update({ ...payload, presentado: true, borrador_data: null })
+          .eq('id', editId)
+        if (casoErr) throw casoErr
+        casoId = editId
+      } else {
+        const { data: caso, error: casoErr } = await supabase
+          .from('casos_comite')
+          .insert({ ...payload, presentado: true })
+          .select('id').single()
+        if (casoErr) throw casoErr
+        casoId = caso.id
+      }
 
       localStorage.removeItem(DRAFT_KEY)
       toast.success('Caso presentado al comité', { icon: '🎉' })
-      navigate(`/casos/${caso.id}`)
+      navigate(`/casos/${casoId}`)
     } catch (e) {
       console.error('Error al presentar:', e)
       toast.error(`Error al presentar: ${e.message}`)
@@ -523,7 +654,7 @@ export default function PresentacionComite() {
         {step === 2 && <StepDiagnostico {...{ data, update, errors, toggleNA }} />}
         {step === 3 && <StepAntecedentes {...{ data, update, errors, toggleNA }} />}
         {step === 4 && <StepEstudios {...{ data, update, errors, toggleNA }} />}
-        {step === 5 && <StepTratamientos {...{ data, update, updateLineaActual, errors, toggleNA }} />}
+        {step === 5 && <StepTratamientos {...{ data, update, updateContextoActual, errors, toggleNA }} />}
         {step === 6 && <StepValoraciones {...{ data, update }} />}
         {step === 7 && <StepEvidencia {...{ data, update, errors, protocolos }} />}
         {step === 8 && <StepPregunta {...{ data, update, errors }} />}
@@ -537,9 +668,9 @@ export default function PresentacionComite() {
           <ChevronLeft className="w-4 h-4" /> Anterior
         </button>
         <div className="flex gap-2 w-full sm:w-auto">
-          <button onClick={guardarBorrador} disabled={saving}
+          <button onClick={abrirAgendar}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300">
-            <Save className="w-4 h-4" /> {saving ? 'Guardando...' : 'Guardar borrador'}
+            <CalendarPlus className="w-4 h-4" /> {editId ? 'Actualizar agenda' : 'Agendar para comité'}
           </button>
           {step < STEPS.length - 1 ? (
             <button onClick={next}
@@ -555,6 +686,67 @@ export default function PresentacionComite() {
           )}
         </div>
       </div>
+
+      {/* Modal: Agendar para comité */}
+      {showAgendar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+             onClick={() => !agendando && setShowAgendar(false)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-300 w-full max-w-md p-6"
+               onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-900">Agendar para comité</h3>
+              <button onClick={() => setShowAgendar(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <label className="block text-sm font-semibold text-slate-800 mb-1.5">Sesión de comité</label>
+            <select value={sesionSel} onChange={e => setSesionSel(e.target.value)}
+              className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg text-sm text-slate-900 mb-3">
+              {sesiones.map(s => (
+                <option key={s.id} value={String(s.id)}>
+                  {new Date(s.fecha).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })}
+                  {' · '}{TIPO_COMITE_OPTS.find(t => t.value === s.tipo_comite)?.label || s.tipo_comite}
+                </option>
+              ))}
+              <option value="nueva">➕ Crear nueva sesión…</option>
+            </select>
+
+            {sesionSel === 'nueva' && (
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Fecha del comité</label>
+                  <input type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)}
+                    min={new Date().toISOString().slice(0, 10)}
+                    className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg text-sm text-slate-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tipo</label>
+                  <select value={nuevoTipo} onChange={e => setNuevoTipo(e.target.value)}
+                    className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg text-sm text-slate-900">
+                    {TIPO_COMITE_OPTS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-slate-500 mb-4">
+              El caso queda en la agenda del comité y puedes seguir editándolo hasta el día de la sesión.
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowAgendar(false)} disabled={agendando}
+                className="px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-700 hover:bg-slate-50 text-sm">
+                Cancelar
+              </button>
+              <button onClick={confirmarAgendar} disabled={agendando}
+                className="px-5 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
+                {agendando ? 'Agendando…' : 'Agendar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -623,7 +815,7 @@ function calcularProyeccion(d) {
       ganancia_pfs_meses: null,
       costo_por_mes_pfs_ganado: null,
       es_naive: true,
-      motivo_sin_diferencial: esPacienteNaive(d.linea_actual)
+      motivo_sin_diferencial: esPacienteNaive(d.contexto_actual)
         ? 'naive'
         : 'falta_pfs_actual',
     }
@@ -969,21 +1161,27 @@ function StepEstudios({ data, update, errors, toggleNA }) {
       </Field>
       <Field label="Patología" required full error={errors.estudios_patologia}
         naValue={data.estudios_patologia === NA} onToggleNA={() => toggleNA('estudios_patologia')}>
+        <div className="mb-2 max-w-[240px]">
+          <label className="block text-xs font-medium text-slate-500 mb-1">Fecha de la patología</label>
+          <Input type="date" value={data.fecha_patologia}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={v => update('fecha_patologia', v)} error={errors.fecha_patologia} />
+        </div>
         <TextArea value={data.estudios_patologia} onChange={v => update('estudios_patologia', v)}
-          placeholder="Ej. Biopsia 28/02/2026: adenocarcinoma pulmonar. IHQ: TTF-1+, Napsina A+"
+          placeholder="Ej. Biopsia: adenocarcinoma pulmonar. IHQ: TTF-1+, Napsina A+"
           error={errors.estudios_patologia} />
       </Field>
       <Field label="Estudios moleculares / NGS" required full error={errors.estudios_moleculares}
         naValue={data.estudios_moleculares === NA} onToggleNA={() => toggleNA('estudios_moleculares')}>
+        <div className="mb-2 max-w-[240px]">
+          <label className="block text-xs font-medium text-slate-500 mb-1">Fecha del estudio molecular / NGS</label>
+          <Input type="date" value={data.fecha_moleculares}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={v => update('fecha_moleculares', v)} error={errors.fecha_moleculares} />
+        </div>
         <TextArea value={data.estudios_moleculares} onChange={v => update('estudios_moleculares', v)}
           placeholder="Ej. EGFR exón 19 deletion positivo, ALK negativo, ROS1 negativo, PD-L1 TPS 5%"
           error={errors.estudios_moleculares} />
-      </Field>
-      <Field label="Fecha del último estudio" required error={errors.fecha_ultimo_estudio}
-        naValue={data.fecha_ultimo_estudio === NA} onToggleNA={() => toggleNA('fecha_ultimo_estudio')}>
-        <Input type="date" value={data.fecha_ultimo_estudio}
-          max={new Date().toISOString().split('T')[0]}
-          onChange={v => update('fecha_ultimo_estudio', v)} error={errors.fecha_ultimo_estudio} />
       </Field>
     </Section>
   )
@@ -992,23 +1190,22 @@ function StepEstudios({ data, update, errors, toggleNA }) {
 /* ──────────────────────────────────────────────────────────────
    STEP 6 — Tratamientos (REESTRUCTURADO)
    ────────────────────────────────────────────────────────────── */
-function StepTratamientos({ data, update, updateLineaActual, errors, toggleNA }) {
+function StepTratamientos({ data, update, updateContextoActual, errors, toggleNA }) {
   return (
-    <Section title="Tratamientos previos y actual" description="Línea actual del paciente, tratamientos previos y modalidades" icon={Pill}>
+    <Section title="Tratamientos previos y actual" description="Contexto terapéutico, tratamientos previos y modalidades" icon={Pill}>
       {/* TRATAMIENTO ACTUAL */}
       <div className="md:col-span-2">
         <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3 mt-2">
           📍 Situación actual del paciente
         </h3>
       </div>
-      <Field label="Línea actual de tratamiento" required error={errors.linea_actual}
-        hint="Número de la línea actual. 0 = paciente naive (no ha recibido tratamiento previo).">
-        <Input type="number" min="0" max="10" value={data.linea_actual}
-          onChange={updateLineaActual} placeholder="Ej. 1, 2, 3..."
-          error={errors.linea_actual} />
+      <Field label="Contexto terapéutico actual" required error={errors.contexto_actual}
+        hint="Naive = sin tratamiento previo. Las líneas 1/2/3+ son de enfermedad metastásica; neo/adyuvancia no son líneas metastásicas.">
+        <Select value={data.contexto_actual} onChange={updateContextoActual}
+          options={CONTEXTO_OPTS} error={errors.contexto_actual} />
       </Field>
       <Field label="Tratamiento actual" required error={errors.tratamiento_actual}
-        hint="Lo que el paciente está recibiendo en este momento.">
+        hint="Lo que el paciente recibe ahora (incluye terapia dirigida / hormonoterapia / inmunoterapia si aplica).">
         <Input value={data.tratamiento_actual} onChange={v => update('tratamiento_actual', v)}
           placeholder="Ej. Carboplatino + Pemetrexed" error={errors.tratamiento_actual} />
       </Field>
@@ -1196,9 +1393,9 @@ function StepPregunta({ data, update, errors }) {
           placeholder="Ej. ¿Está justificado iniciar segunda línea con osimertinib o se debe rebiopsiar para identificar T790M antes?"
           error={errors.pregunta_comite} />
       </Field>
-      <Field label="Línea propuesta">
-        <Input type="number" min="1" max="10" value={data.linea_propuesta}
-          onChange={v => update('linea_propuesta', v)} placeholder="Ej. 2" />
+      <Field label="Contexto terapéutico propuesto">
+        <Select value={data.contexto_propuesto} onChange={v => update('contexto_propuesto', v)}
+          options={CONTEXTO_OPTS} />
       </Field>
       <div />
       <Field label="Tratamiento propuesto" required full error={errors.tratamiento_propuesto}>
@@ -1224,7 +1421,7 @@ function StepPregunta({ data, update, errors }) {
 function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
   const pfsActualNA = data.pfs_actual_meses === NA
   const osActualNA  = data.os_actual_meses === NA
-  const naive = esPacienteNaive(data.linea_actual)
+  const naive = esPacienteNaive(data.contexto_actual)
 
   return (
     <Section

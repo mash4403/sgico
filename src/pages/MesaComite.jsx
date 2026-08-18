@@ -217,6 +217,8 @@ export default function MesaComite() {
         .upsert(buildPayload(true), { onConflict: 'caso_id' })
       if (error) throw error
       await persistirCostoAprobado()
+      // Firmar el acta = el caso fue presentado en comité: sale de la agenda
+      await supabase.from('casos_comite').update({ presentado: true }).eq('id', Number(id))
       toast.success('Acta firmada y caso actualizado')
       await cargarDatos()
     } catch (e) {

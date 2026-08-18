@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard'
 import Casos from './pages/Casos'
 import CasoDetalle from './pages/CasoDetalle'
 import PresentacionComite from './pages/PresentacionComite'
+import Agenda from './pages/Agenda'
 import MesaComite from './pages/MesaComite'
 import Seguimientos from './pages/Seguimientos'
 
@@ -54,7 +55,9 @@ export default function App() {
           <Route path="/casos" element={<Casos />} />
           <Route path="/casos/:id" element={<CasoDetalle />} />
           <Route path="/casos/:id/acta" element={<MesaComite />} />
+          <Route path="/agenda" element={<Agenda />} />
           <Route path="/presentar" element={<PresentacionComite />} />
+          <Route path="/presentar/:id" element={<PresentacionComite />} />
           <Route path="/seguimientos" element={<Seguimientos />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
