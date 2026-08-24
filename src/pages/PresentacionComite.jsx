@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { mensajeCostoPrevio, mensajeSinDiferencial } from '../lib/utils'
-import { CIE10 } from '../lib/cie10'
+import { buscarCIE10, CIE10_INDEX } from '../lib/cie10'
 import toast from 'react-hot-toast'
 import {
   ChevronLeft, ChevronRight, Send, Check,
@@ -1032,23 +1032,22 @@ function BiomarcadoresEditor({ value, onChange }) {
 }
 
 // Búsqueda CIE-10 por texto (evita digitar el código). Devuelve (codigo, descripcion).
-const normTxt = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 function Cie10Search({ value, onSelect, error }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
-  const selected = CIE10.find(c => c.codigo === value)
-  const q = normTxt(query)
-  const matches = q.length >= 2
-    ? CIE10.filter(c => normTxt(c.codigo).includes(q) || normTxt(c.descripcion).includes(q)).slice(0, 12)
-    : []
+  const selected = CIE10_INDEX[value]
+  const matches = query.trim().length >= 2 ? buscarCIE10(query, { limite: 15 }) : []
 
   if (value) {
     return (
-      <div className={`flex items-center gap-2 px-3 py-2 border-2 rounded-lg text-sm bg-white ${error ? 'border-red-400' : 'border-slate-300'}`}>
-        <span className="font-mono font-bold text-blue-700">{value}</span>
-        <span className="text-slate-700 flex-1 truncate">{selected?.descripcion || '(código manual)'}</span>
-        <button type="button" onClick={() => { onSelect(''); setQuery('') }}
-          className="text-xs text-slate-500 hover:text-blue-700 font-medium">Cambiar</button>
+      <div className={`px-3 py-2 border-2 rounded-lg text-sm bg-white ${error ? 'border-red-400' : 'border-slate-300'}`}>
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-bold text-blue-700">{value}</span>
+          <span className="text-slate-700 flex-1 truncate">{selected?.descripcion || '(código manual)'}</span>
+          <button type="button" onClick={() => { onSelect(''); setQuery('') }}
+            className="text-xs text-slate-500 hover:text-blue-700 font-medium">Cambiar</button>
+        </div>
+        {selected?.alerta && <p className="text-[11px] text-amber-700 mt-1">⚠ {selected.alerta}</p>}
       </div>
     )
   }
@@ -1059,15 +1058,15 @@ function Cie10Search({ value, onSelect, error }) {
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Escribe el diagnóstico… (ej. colon, mama, pulmón, C50)"
+        placeholder="Escribe el diagnóstico… (ej. colon, linfoma del manto, C50)"
         className={`${inputBase} ${error ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-white'}`} />
-      {open && q.length >= 2 && (
-        <div className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-slate-300 rounded-lg shadow-lg">
+      {open && query.trim().length >= 2 && (
+        <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-white border border-slate-300 rounded-lg shadow-lg">
           {matches.map(c => (
             <button type="button" key={c.codigo}
               onClick={() => { onSelect(c.codigo, c.descripcion); setOpen(false); setQuery('') }}
               className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-start gap-2 border-b border-slate-100 last:border-0">
-              <span className="font-mono text-xs font-bold text-blue-700 mt-0.5 shrink-0">{c.codigo}</span>
+              <span className="font-mono text-xs font-bold text-blue-700 mt-0.5 shrink-0 w-14">{c.codigo}</span>
               <span className="text-sm text-slate-700">{c.descripcion}</span>
             </button>
           ))}
