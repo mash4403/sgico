@@ -59,6 +59,32 @@ const contextoALinea = (ctx) => {
   }
 }
 
+// Catálogo de arranque de biomarcadores oncológicos (E3). Ampliable.
+const BIOMARCADOR_OPTS = [
+  'EGFR', 'EGFR T790M', 'ALK', 'ROS1', 'BRAF', 'KRAS', 'KRAS G12C',
+  'HER2 / ERBB2', 'MET', 'RET', 'NTRK', 'PD-L1', 'MSI / MMR',
+  'BRCA1', 'BRCA2', 'PIK3CA', 'ESR1', 'RE (receptor estrógeno)',
+  'RP (receptor progesterona)', 'Ki-67', 'IDH1', 'IDH2', 'FGFR', 'cKIT',
+  'Otro',
+].map(v => ({ value: v, label: v }))
+
+const RESULTADO_BM_OPTS = [
+  { value: 'positivo', label: 'Positivo' },
+  { value: 'negativo', label: 'Negativo' },
+  { value: 'no_evaluable', label: 'No evaluable' },
+  { value: 'indeterminado', label: 'Indeterminado' },
+]
+const RESULTADO_BM_LABEL = Object.fromEntries(RESULTADO_BM_OPTS.map(o => [o.value, o.label]))
+
+// Resumen de texto derivado del arreglo (para la columna biomarcadores y las vistas legadas)
+const resumenBiomarcadores = (list) => {
+  if (!Array.isArray(list)) return null
+  const items = list
+    .filter(r => r.biomarcador)
+    .map(r => `${r.biomarcador}: ${RESULTADO_BM_LABEL[r.resultado] || r.resultado || '—'}${r.fecha ? ` (${r.fecha})` : ''}`)
+  return items.length ? items.join(' · ') : null
+}
+
 const toIntOrNull = (v) => {
   if (v === '' || v === null || v === undefined) return null
   const n = parseInt(v, 10)
@@ -85,7 +111,7 @@ const initialState = {
   // 3. Diagnóstico
   cie10: '', diagnostico_descripcion: '', histologia: '',
   estadio_clinico: '', tnm_t: '', tnm_n: '', tnm_m: '',
-  fecha_diagnostico: '', biomarcadores: '',
+  fecha_diagnostico: '', biomarcadores: '', biomarcadores_list: [],
 
   // 4. Antecedentes
   ecog: '', comorbilidades: '', alergias: '',
@@ -286,8 +312,9 @@ export default function PresentacionComite() {
         break
       case 2:
         ;['cie10','diagnostico_descripcion','histologia','estadio_clinico',
-          'tnm_t','tnm_n','tnm_m','fecha_diagnostico','biomarcadores']
+          'tnm_t','tnm_n','tnm_m','fecha_diagnostico']
           .forEach(f => req(f))
+        // biomarcadores: sub-formulario estructurado, opcional (0..n filas)
         noFuture('fecha_diagnostico')
         break
       case 3:
@@ -525,7 +552,9 @@ export default function PresentacionComite() {
         estadio_clinico: clean(data.estadio_clinico),
         tnm: armarTNM(data),
         fecha_diagnostico: cleanDate(data.fecha_diagnostico),
-        biomarcadores: clean(data.biomarcadores),
+        // texto = resumen derivado del arreglo (compat con Detalle/Mesa); jsonb = estructurado
+        biomarcadores: resumenBiomarcadores(data.biomarcadores_list) || clean(data.biomarcadores),
+        biomarcadores_estructurados: (data.biomarcadores_list?.length ? data.biomarcadores_list : null),
 
         ecog: clean(data.ecog),
         comorbilidades: clean(data.comorbilidades),
@@ -934,6 +963,52 @@ function Select({ value, onChange, options, error, placeholder = 'Seleccione...'
   )
 }
 
+// Sub-formulario repetible de biomarcadores: { biomarcador, resultado, fecha }
+function BiomarcadoresEditor({ value, onChange }) {
+  const rows = Array.isArray(value) ? value : []
+  const today = new Date().toISOString().split('T')[0]
+  const add = () => onChange([...rows, { biomarcador: '', resultado: '', fecha: '' }])
+  const upd = (i, k, v) => onChange(rows.map((r, idx) => idx === i ? { ...r, [k]: v } : r))
+  const rm = (i) => onChange(rows.filter((_, idx) => idx !== i))
+  return (
+    <div className="md:col-span-2">
+      <div className="flex items-center justify-between mb-1.5">
+        <label className="text-sm font-semibold text-slate-800">Biomarcadores y mutaciones</label>
+        <button type="button" onClick={add}
+          className="text-xs px-2.5 py-1 rounded-full font-semibold bg-blue-600 text-white hover:bg-blue-700">
+          + Agregar biomarcador
+        </button>
+      </div>
+      {rows.length === 0 && (
+        <p className="text-xs text-slate-500">Sin biomarcadores registrados. Agrega los que apliquen (opcional).</p>
+      )}
+      <div className="space-y-2">
+        {rows.map((r, i) => (
+          <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2 items-end
+                                   bg-slate-50 border border-slate-200 rounded-lg p-2">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-500 mb-1">Biomarcador</label>
+              <Select value={r.biomarcador} onChange={v => upd(i, 'biomarcador', v)} options={BIOMARCADOR_OPTS} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-500 mb-1">Resultado</label>
+              <Select value={r.resultado} onChange={v => upd(i, 'resultado', v)} options={RESULTADO_BM_OPTS} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-500 mb-1">Fecha</label>
+              <Input type="date" value={r.fecha} max={today} onChange={v => upd(i, 'fecha', v)} />
+            </div>
+            <button type="button" onClick={() => rm(i)} title="Quitar"
+              className="h-[42px] w-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /* ──────────────────────────────────────────────────────────────
    STEPS
    ────────────────────────────────────────────────────────────── */
@@ -1082,12 +1157,8 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
         <Input value={data.tnm_m} onChange={v => update('tnm_m', v.toUpperCase())}
           placeholder="Mx, M0, M1" error={errors.tnm_m} />
       </Field>
-      <Field label="Biomarcadores y mutaciones" required full error={errors.biomarcadores}
-        naValue={data.biomarcadores === NA} onToggleNA={() => toggleNA('biomarcadores')}>
-        <TextArea value={data.biomarcadores} onChange={v => update('biomarcadores', v)}
-          placeholder="Ej. RE 90%, RP 70%, HER2 negativo, Ki67 30%, PD-L1 TPS 50%"
-          error={errors.biomarcadores} />
-      </Field>
+      <BiomarcadoresEditor value={data.biomarcadores_list}
+        onChange={v => update('biomarcadores_list', v)} />
     </Section>
   )
 }
