@@ -85,6 +85,25 @@ const resumenBiomarcadores = (list) => {
   return items.length ? items.join(' · ') : null
 }
 
+// Catálogo de arranque de imágenes diagnósticas (denominaciones tipo CUPS, E4). Ampliable.
+const IMAGEN_OPTS = [
+  'TAC de tórax', 'TAC de abdomen', 'TAC de pelvis', 'TAC de tórax y abdomen',
+  'TAC de tórax, abdomen y pelvis', 'TAC de cráneo', 'TAC de cuello',
+  'RM cerebral', 'RM de columna cervical', 'RM de columna dorsal', 'RM de columna lumbar',
+  'RM de abdomen', 'RM de pelvis',
+  'PET/CT', 'Gammagrafía ósea',
+  'Ecografía abdominal', 'Ecografía mamaria', 'Mamografía', 'Radiografía de tórax',
+  'Otro',
+].map(v => ({ value: v, label: v }))
+
+const resumenImagenes = (list) => {
+  if (!Array.isArray(list)) return null
+  const items = list
+    .filter(r => r.estudio)
+    .map(r => `${r.estudio}${r.fecha ? ` (${r.fecha})` : ''}${r.hallazgo ? `: ${r.hallazgo}` : ''}`)
+  return items.length ? items.join(' · ') : null
+}
+
 const toIntOrNull = (v) => {
   if (v === '' || v === null || v === undefined) return null
   const n = parseInt(v, 10)
@@ -119,7 +138,7 @@ const initialState = {
   medicacion_actual: '',
 
   // 5. Estudios
-  estudios_imagenes: '', estudios_laboratorio: '',
+  estudios_imagenes: '', imagenes_list: [], estudios_laboratorio: '',
   estudios_patologia: '', estudios_moleculares: '',
   fecha_patologia: '', fecha_moleculares: '',
 
@@ -323,8 +342,9 @@ export default function PresentacionComite() {
           'habito_alcohol','medicacion_actual'].forEach(f => req(f))
         break
       case 4:
-        ;['estudios_imagenes','estudios_laboratorio','estudios_patologia',
+        ;['estudios_laboratorio','estudios_patologia',
           'estudios_moleculares'].forEach(f => req(f))
+        // imágenes: sub-formulario estructurado, opcional (0..n filas)
         noFuture('fecha_patologia'); noFuture('fecha_moleculares')
         break
       case 5:
@@ -563,7 +583,8 @@ export default function PresentacionComite() {
         habito_alcohol: clean(data.habito_alcohol),
         medicacion_actual: clean(data.medicacion_actual),
 
-        estudios_imagenes: clean(data.estudios_imagenes),
+        estudios_imagenes: resumenImagenes(data.imagenes_list) || clean(data.estudios_imagenes),
+        imagenes_estructuradas: (data.imagenes_list?.length ? data.imagenes_list : null),
         estudios_laboratorio: clean(data.estudios_laboratorio),
         estudios_patologia: clean(data.estudios_patologia),
         estudios_moleculares: clean(data.estudios_moleculares),
@@ -1009,6 +1030,54 @@ function BiomarcadoresEditor({ value, onChange }) {
   )
 }
 
+// Sub-formulario repetible de imágenes diagnósticas: { estudio, fecha, hallazgo }
+function ImagenesEditor({ value, onChange }) {
+  const rows = Array.isArray(value) ? value : []
+  const today = new Date().toISOString().split('T')[0]
+  const add = () => onChange([...rows, { estudio: '', fecha: '', hallazgo: '' }])
+  const upd = (i, k, v) => onChange(rows.map((r, idx) => idx === i ? { ...r, [k]: v } : r))
+  const rm = (i) => onChange(rows.filter((_, idx) => idx !== i))
+  return (
+    <div className="md:col-span-2">
+      <div className="flex items-center justify-between mb-1.5">
+        <label className="text-sm font-semibold text-slate-800">Imágenes diagnósticas</label>
+        <button type="button" onClick={add}
+          className="text-xs px-2.5 py-1 rounded-full font-semibold bg-blue-600 text-white hover:bg-blue-700">
+          + Agregar imagen
+        </button>
+      </div>
+      {rows.length === 0 && (
+        <p className="text-xs text-slate-500">Sin imágenes registradas. Agrega los estudios realizados (opcional).</p>
+      )}
+      <div className="space-y-2">
+        {rows.map((r, i) => (
+          <div key={i} className="bg-slate-50 border border-slate-200 rounded-lg p-2 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-end">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Estudio</label>
+                <Select value={r.estudio} onChange={v => upd(i, 'estudio', v)} options={IMAGEN_OPTS} />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Fecha</label>
+                <Input type="date" value={r.fecha} max={today} onChange={v => upd(i, 'fecha', v)} />
+              </div>
+              <button type="button" onClick={() => rm(i)} title="Quitar"
+                className="h-[42px] w-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-500 mb-1">Hallazgo / observación</label>
+              <Input value={r.hallazgo} onChange={v => upd(i, 'hallazgo', v)}
+                placeholder="Ej. lesión pulmonar LSI 22 mm; sin adenopatías" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /* ──────────────────────────────────────────────────────────────
    STEPS
    ────────────────────────────────────────────────────────────── */
@@ -1218,12 +1287,8 @@ function StepAntecedentes({ data, update, errors, toggleNA }) {
 function StepEstudios({ data, update, errors, toggleNA }) {
   return (
     <Section title="Estudios e imágenes realizadas" description="Hallazgos relevantes con fechas y resultados" icon={FlaskConical}>
-      <Field label="Imágenes diagnósticas" required full error={errors.estudios_imagenes}
-        naValue={data.estudios_imagenes === NA} onToggleNA={() => toggleNA('estudios_imagenes')}>
-        <TextArea value={data.estudios_imagenes} onChange={v => update('estudios_imagenes', v)}
-          placeholder="Ej. TAC tórax-abdomen-pelvis 02/03/2026: lesión pulmonar LSI 22mm. PET-CT 15/03/2026: SUV 12."
-          error={errors.estudios_imagenes} />
-      </Field>
+      <ImagenesEditor value={data.imagenes_list}
+        onChange={v => update('imagenes_list', v)} />
       <Field label="Laboratorio relevante" required full error={errors.estudios_laboratorio}
         naValue={data.estudios_laboratorio === NA} onToggleNA={() => toggleNA('estudios_laboratorio')}>
         <TextArea value={data.estudios_laboratorio} onChange={v => update('estudios_laboratorio', v)}
