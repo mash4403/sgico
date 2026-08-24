@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { mensajeCostoPrevio, mensajeSinDiferencial } from '../lib/utils'
+import { CIE10 } from '../lib/cie10'
 import toast from 'react-hot-toast'
 import {
   ChevronLeft, ChevronRight, Send, Check,
@@ -1030,6 +1031,59 @@ function BiomarcadoresEditor({ value, onChange }) {
   )
 }
 
+// Búsqueda CIE-10 por texto (evita digitar el código). Devuelve (codigo, descripcion).
+const normTxt = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+function Cie10Search({ value, onSelect, error }) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const selected = CIE10.find(c => c.codigo === value)
+  const q = normTxt(query)
+  const matches = q.length >= 2
+    ? CIE10.filter(c => normTxt(c.codigo).includes(q) || normTxt(c.descripcion).includes(q)).slice(0, 12)
+    : []
+
+  if (value) {
+    return (
+      <div className={`flex items-center gap-2 px-3 py-2 border-2 rounded-lg text-sm bg-white ${error ? 'border-red-400' : 'border-slate-300'}`}>
+        <span className="font-mono font-bold text-blue-700">{value}</span>
+        <span className="text-slate-700 flex-1 truncate">{selected?.descripcion || '(código manual)'}</span>
+        <button type="button" onClick={() => { onSelect(''); setQuery('') }}
+          className="text-xs text-slate-500 hover:text-blue-700 font-medium">Cambiar</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <input value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Escribe el diagnóstico… (ej. colon, mama, pulmón, C50)"
+        className={`${inputBase} ${error ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-white'}`} />
+      {open && q.length >= 2 && (
+        <div className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-slate-300 rounded-lg shadow-lg">
+          {matches.map(c => (
+            <button type="button" key={c.codigo}
+              onClick={() => { onSelect(c.codigo, c.descripcion); setOpen(false); setQuery('') }}
+              className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-start gap-2 border-b border-slate-100 last:border-0">
+              <span className="font-mono text-xs font-bold text-blue-700 mt-0.5 shrink-0">{c.codigo}</span>
+              <span className="text-sm text-slate-700">{c.descripcion}</span>
+            </button>
+          ))}
+          {query.trim().length >= 3 && (
+            <button type="button"
+              onClick={() => { onSelect(query.toUpperCase().trim()); setOpen(false); setQuery('') }}
+              className="w-full text-left px-3 py-2 hover:bg-amber-50 text-sm text-slate-600 border-t border-slate-200">
+              Usar <span className="font-mono font-semibold">{query.toUpperCase().trim()}</span> como código manual
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Sub-formulario repetible de imágenes diagnósticas: { estudio, fecha, hallazgo }
 function ImagenesEditor({ value, onChange }) {
   const rows = Array.isArray(value) ? value : []
@@ -1173,10 +1227,13 @@ function StepDemograficos({ data, update, errors }) {
 function StepDiagnostico({ data, update, errors, toggleNA }) {
   return (
     <Section title="Diagnóstico oncológico" description="Codificación CIE-10, histología y estadificación TNM" icon={Stethoscope}>
-      <Field label="Código CIE-10" required error={errors.cie10}
-        naValue={data.cie10 === NA} onToggleNA={() => toggleNA('cie10')}>
-        <Input value={data.cie10} onChange={v => update('cie10', v.toUpperCase())}
-          placeholder="Ej. C50.9" error={errors.cie10} />
+      <Field label="Diagnóstico (CIE-10)" required full error={errors.cie10}
+        hint="Busca por el diagnóstico (ej. «colon», «mama») y selecciona el código. No hace falta digitarlo.">
+        <Cie10Search value={data.cie10} error={errors.cie10}
+          onSelect={(codigo, desc) => {
+            update('cie10', codigo)
+            if (desc && !data.diagnostico_descripcion) update('diagnostico_descripcion', desc)
+          }} />
       </Field>
       <Field label="Fecha del diagnóstico" required error={errors.fecha_diagnostico}
         naValue={data.fecha_diagnostico === NA} onToggleNA={() => toggleNA('fecha_diagnostico')}>
