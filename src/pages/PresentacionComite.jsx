@@ -899,6 +899,11 @@ const fmtCOP = (n) => n == null ? '—' : '$ ' + Number(n).toLocaleString('es-CO
 
 const clean = (v) => (v === NA ? 'No aplica' : (v?.toString().trim() || null))
 const cleanDate = (v) => (v === NA || !v ? null : v)
+// TNM genérico (AJCC). Categorías transversales; el afinamiento por tumor es posterior.
+const T_OPTS = ['Tis', 'T0', 'T1', 'T1a', 'T1b', 'T1c', 'T2', 'T2a', 'T2b', 'T3', 'T4', 'T4a', 'T4b', 'Tx'].map(v => ({ value: v, label: v }))
+const N_OPTS = ['N0', 'N1', 'N1a', 'N1b', 'N1c', 'N2', 'N2a', 'N2b', 'N3', 'N3a', 'N3b', 'Nx'].map(v => ({ value: v, label: v }))
+const M_OPTS = ['M0', 'M1', 'M1a', 'M1b', 'M1c', 'Mx'].map(v => ({ value: v, label: v }))
+
 const armarTNM = (d) => {
   const t = d.tnm_t === NA ? null : d.tnm_t
   const n = d.tnm_n === NA ? null : d.tnm_n
@@ -1315,20 +1320,14 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
           ]} error={errors.estadio_clinico} />
       </Field>
       <div />
-      <Field label="T (Tumor)" required error={errors.tnm_t}
-        naValue={data.tnm_t === NA} onToggleNA={() => toggleNA('tnm_t')}>
-        <Input value={data.tnm_t} onChange={v => update('tnm_t', v.toUpperCase())}
-          placeholder="Tx, T0, T1..." error={errors.tnm_t} />
+      <Field label="T (Tumor)" required error={errors.tnm_t}>
+        <Select value={data.tnm_t} onChange={v => update('tnm_t', v)} options={T_OPTS} error={errors.tnm_t} />
       </Field>
-      <Field label="N (Nodos)" required error={errors.tnm_n}
-        naValue={data.tnm_n === NA} onToggleNA={() => toggleNA('tnm_n')}>
-        <Input value={data.tnm_n} onChange={v => update('tnm_n', v.toUpperCase())}
-          placeholder="Nx, N0, N1..." error={errors.tnm_n} />
+      <Field label="N (Nodos)" required error={errors.tnm_n}>
+        <Select value={data.tnm_n} onChange={v => update('tnm_n', v)} options={N_OPTS} error={errors.tnm_n} />
       </Field>
-      <Field label="M (Metástasis)" required error={errors.tnm_m}
-        naValue={data.tnm_m === NA} onToggleNA={() => toggleNA('tnm_m')}>
-        <Input value={data.tnm_m} onChange={v => update('tnm_m', v.toUpperCase())}
-          placeholder="Mx, M0, M1" error={errors.tnm_m} />
+      <Field label="M (Metástasis)" required error={errors.tnm_m}>
+        <Select value={data.tnm_m} onChange={v => update('tnm_m', v)} options={M_OPTS} error={errors.tnm_m} />
       </Field>
       <BiomarcadoresEditor value={data.biomarcadores_list}
         onChange={v => update('biomarcadores_list', v)} />
