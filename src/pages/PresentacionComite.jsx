@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { mensajeCostoPrevio, mensajeSinDiferencial } from '../lib/utils'
 import { buscarCIE10, CIE10_INDEX } from '../lib/cie10'
+import { buscarHistologia } from '../lib/histologia'
 import toast from 'react-hot-toast'
 import {
   ChevronLeft, ChevronRight, Send, Check,
@@ -1083,6 +1084,52 @@ function Cie10Search({ value, onSelect, error }) {
   )
 }
 
+// Búsqueda de histología (CAP), filtrada por el grupo del CIE-10 del diagnóstico.
+function HistologiaSearch({ value, onSelect, grupo, error }) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const matches = open ? buscarHistologia(query, { grupo, limite: 20 }) : []
+
+  if (value) {
+    return (
+      <div className={`flex items-center gap-2 px-3 py-2 border-2 rounded-lg text-sm bg-white ${error ? 'border-red-400' : 'border-slate-300'}`}>
+        <span className="text-slate-800 flex-1">{value}</span>
+        <button type="button" onClick={() => { onSelect(''); setQuery('') }}
+          className="text-xs text-slate-500 hover:text-blue-700 font-medium shrink-0">Cambiar</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <input value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder={grupo ? `Histologías de: ${grupo} (o busca otra)` : 'Selecciona el diagnóstico primero, o busca la histología'}
+        className={`${inputBase} ${error ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-white'}`} />
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-white border border-slate-300 rounded-lg shadow-lg">
+          {matches.map(h => (
+            <button type="button" key={h.nombre}
+              onClick={() => { onSelect(h.nombre); setOpen(false); setQuery('') }}
+              className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm text-slate-700 border-b border-slate-100 last:border-0">
+              {h.nombre}
+            </button>
+          ))}
+          {query.trim().length >= 3 && (
+            <button type="button"
+              onClick={() => { onSelect(query.trim()); setOpen(false); setQuery('') }}
+              className="w-full text-left px-3 py-2 hover:bg-amber-50 text-sm text-slate-600 border-t border-slate-200">
+              Usar “{query.trim()}” (histología no listada)
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Sub-formulario repetible de imágenes diagnósticas: { estudio, fecha, hallazgo }
 function ImagenesEditor({ value, onChange }) {
   const rows = Array.isArray(value) ? value : []
@@ -1250,9 +1297,10 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
           error={errors.diagnostico_descripcion} />
       </Field>
       <Field label="Histología" required full error={errors.histologia}
-        naValue={data.histologia === NA} onToggleNA={() => toggleNA('histologia')}>
-        <Input value={data.histologia} onChange={v => update('histologia', v)}
-          placeholder="Ej. Carcinoma ductal infiltrante, grado II" error={errors.histologia} />
+        hint="Selección tipo CAP, filtrada por el diagnóstico. Puedes buscar por nombre o sinónimo.">
+        <HistologiaSearch value={data.histologia} error={errors.histologia}
+          grupo={CIE10_INDEX[data.cie10]?.subgrupo}
+          onSelect={v => update('histologia', v)} />
       </Field>
       <Field label="Estadio clínico" required error={errors.estadio_clinico}
         naValue={data.estadio_clinico === NA} onToggleNA={() => toggleNA('estadio_clinico')}>
