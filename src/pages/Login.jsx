@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
+import { Eye, EyeOff } from 'lucide-react'
 import ElCircuito from '../components/ElCircuito'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPass, setShowPass] = useState(false)
   const [isSignUp, setIsSignUp] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -49,8 +51,16 @@ export default function Login() {
           </div>
           <div>
             <label className="block text-xs text-niebla mb-1.5 font-medium">Contraseña</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••" required minLength={6} />
+            <div className="relative">
+              <input type={showPass ? 'text' : 'password'} value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••" required minLength={6} className="pr-10" />
+              <button type="button" onClick={() => setShowPass(s => !s)}
+                title={showPass ? 'Ocultar contraseña' : 'Ver contraseña'}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-niebla-oscura hover:text-niebla">
+                {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
           <button type="submit" disabled={loading}
             className="w-full py-2.5 rounded-full font-display font-semibold text-sm text-tinta bg-pulso

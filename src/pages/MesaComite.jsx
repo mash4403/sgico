@@ -6,7 +6,7 @@ import { copiarTextoAlPortapapeles } from '../lib/clipboard'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Gavel, Printer, Plus, X, Lock,
-  Loader2, ClipboardList, MessagesSquare, Users, FileSignature, ClipboardCopy,
+  Loader2, ClipboardList, MessagesSquare, Users, FileSignature, ClipboardCopy, Paperclip, FileText,
 } from 'lucide-react'
 
 const INTENCION_OPTS = [
@@ -228,6 +228,16 @@ export default function MesaComite() {
     }
   }
 
+  async function descargarAdjunto(path) {
+    try {
+      const { data, error } = await supabase.storage.from('adjuntos').createSignedUrl(path, 60)
+      if (error) throw error
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+    } catch (e) {
+      toast.error(`No se pudo abrir el archivo: ${e.message}`)
+    }
+  }
+
   async function copiarAHistoriaClinica() {
     // Copiar el estado en pantalla (form), incluyendo cambios sin guardar.
     // Se conserva fecha_firma del acta guardada si existe.
@@ -308,6 +318,21 @@ export default function MesaComite() {
             placeholder="Síntesis del caso para el comité..."
             className={`${inputBase} resize-none`} />
         </SectionCard>
+
+        {caso.adjuntos?.length > 0 && (
+          <SectionCard title={`Adjuntos (${caso.adjuntos.length})`} icon={Paperclip}>
+            <div className="space-y-2">
+              {caso.adjuntos.map((f, i) => (
+                <button key={i} type="button" onClick={() => descargarAdjunto(f.path)}
+                  className="w-full flex items-center gap-2 p-3 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 text-left transition-colors">
+                  <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span className="text-sm text-slate-800 truncate flex-1">{f.name}</span>
+                  {f.size ? <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span> : null}
+                </button>
+              ))}
+            </div>
+          </SectionCard>
+        )}
 
         <SectionCard title="Discusión" icon={MessagesSquare}>
           <textarea

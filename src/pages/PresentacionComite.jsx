@@ -83,6 +83,7 @@ const BIOMARCADORES = [
   { v: 'MSI / MMR', tipo: 'msi' },
   { v: 'BRCA1', tipo: 'mutacion' },
   { v: 'BRCA2', tipo: 'mutacion' },
+  { v: 'FISH', tipo: 'mutacion' },
   { v: 'PIK3CA', tipo: 'mutacion' },
   { v: 'ESR1', tipo: 'mutacion' },
   { v: 'IDH1', tipo: 'mutacion' },
@@ -97,11 +98,6 @@ const BIOMARCADOR_TIPO = Object.fromEntries(BIOMARCADORES.map(b => [b.v, b.tipo]
 const RES_POS_NEG = [
   { value: 'positivo', label: 'Positivo' },
   { value: 'negativo', label: 'Negativo' },
-  { value: 'no_evaluable', label: 'No evaluable' },
-]
-const RES_MUTACION = [
-  { value: 'positivo', label: 'Positivo (mutado)' },
-  { value: 'negativo', label: 'Negativo (wild-type)' },
   { value: 'no_evaluable', label: 'No evaluable' },
 ]
 const HER2_CRUCES = [
@@ -164,7 +160,7 @@ const fmtBiomarcador = (r) => {
       cuerpo = MSI_LABEL[r.resultado] || r.resultado || '—'
       break
     case 'mutacion':
-      cuerpo = `${RES_LABEL[r.resultado] || r.resultado || '—'}${r.detalle ? ` — ${r.detalle}` : ''}`
+      cuerpo = `${RES_LABEL[r.resultado] || r.resultado || '—'}${r.observaciones ? ` — ${r.observaciones}` : ''}`
       break
     default:
       cuerpo = RES_LABEL[r.resultado] || r.resultado || '—'
@@ -261,7 +257,7 @@ const initialState = {
   // 8. Pregunta
   pregunta_comite: '', tratamiento_propuesto: '',
   justificacion_clinica: '',
-  contexto_propuesto: '',
+  contexto_propuesto: '', fuera_protocolo: '',
 
   // 9. Costos por ciclo + PFS/OS del actual
   costo_ciclo_actual: '', dias_ciclo_actual: '21',
@@ -443,7 +439,8 @@ export default function PresentacionComite() {
         break
       case 5:
         // Contexto terapéutico y tratamiento actual son requeridos
-        req('contexto_actual'); req('tratamiento_actual')
+        req('contexto_actual')
+        if (!esPacienteNaive(data.contexto_actual)) req('tratamiento_actual')
         // El resto se permiten "No aplica"
         ;['quimioterapia_lineas_previas','tratamiento_quirurgico',
           'tratamiento_rt','tratamiento_dirigido','respuesta_previa']
@@ -638,6 +635,8 @@ export default function PresentacionComite() {
         molecula_previa: clean(data.tratamiento_actual)?.slice(0, 100) || null,
         contexto_actual: data.contexto_actual || null,
         contexto_propuesto: data.contexto_propuesto || null,
+        // "fuera de protocolo" = NO adherente al protocolo
+        adherente_protocolo: data.fuera_protocolo === 'si' ? false : data.fuera_protocolo === 'no' ? true : null,
         linea_actual: contextoALinea(data.contexto_actual),
         linea_propuesta: contextoALinea(data.contexto_propuesto),
         // tratamiento_previo unifica todas las modalidades en texto
@@ -1174,11 +1173,11 @@ function BiomarcadoresEditor({ value, onChange }) {
                     <>
                       <div>
                         <label className={lbl}>Resultado</label>
-                        <Select value={r.resultado} onChange={v => upd(i, { resultado: v })} options={RES_MUTACION} />
+                        <Select value={r.resultado} onChange={v => upd(i, { resultado: v })} options={RES_POS_NEG} />
                       </div>
                       <div>
-                        <label className={lbl}>Detalle (alteración)</label>
-                        <Input value={r.detalle || ''} onChange={v => upd(i, { detalle: v })} placeholder="Ej. exón 19 del, L858R" />
+                        <label className={lbl}>Observaciones</label>
+                        <Input value={r.observaciones || ''} onChange={v => upd(i, { observaciones: v })} placeholder="Ej. exón 19 del, L858R, amplificado" />
                       </div>
                     </>
                   )}
@@ -1591,6 +1590,7 @@ function StepEstudios({ data, update, errors, toggleNA }) {
    STEP 6 — Tratamientos (REESTRUCTURADO)
    ────────────────────────────────────────────────────────────── */
 function StepTratamientos({ data, update, updateContextoActual, errors, toggleNA }) {
+  const naive = esPacienteNaive(data.contexto_actual)
   return (
     <Section title="Tratamientos previos y actual" description="Contexto terapéutico, tratamientos previos y modalidades" icon={Pill}>
       {/* TRATAMIENTO ACTUAL */}
@@ -1604,10 +1604,14 @@ function StepTratamientos({ data, update, updateContextoActual, errors, toggleNA
         <Select value={data.contexto_actual} onChange={updateContextoActual}
           options={CONTEXTO_OPTS} error={errors.contexto_actual} />
       </Field>
-      <Field label="Tratamiento actual" required error={errors.tratamiento_actual}
-        hint="Lo que el paciente recibe ahora (incluye terapia dirigida / hormonoterapia / inmunoterapia si aplica).">
-        <Input value={data.tratamiento_actual} onChange={v => update('tratamiento_actual', v)}
-          placeholder="Ej. Carboplatino + Pemetrexed" error={errors.tratamiento_actual} />
+      <Field label="Tratamiento oncológico actual" required={!naive} error={errors.tratamiento_actual}
+        hint={naive
+          ? 'Paciente naive: sin tratamiento oncológico previo.'
+          : 'Oncológico que recibe ahora (incluye terapia dirigida / hormonoterapia / inmunoterapia si aplica). No es la medicación general.'}>
+        <Input value={naive ? '' : data.tratamiento_actual} disabled={naive}
+          onChange={v => update('tratamiento_actual', v)}
+          placeholder={naive ? 'No aplica (naive)' : 'Ej. Carboplatino + Pemetrexed'}
+          error={errors.tratamiento_actual} />
       </Field>
 
       {/* QUIMIOTERAPIA Y LÍNEAS PREVIAS — campo único */}
@@ -1797,7 +1801,11 @@ function StepPregunta({ data, update, errors }) {
         <Select value={data.contexto_propuesto} onChange={v => update('contexto_propuesto', v)}
           options={CONTEXTO_OPTS} />
       </Field>
-      <div />
+      <Field label="¿Fuera de protocolo?"
+        hint="El tratamiento propuesto ya se definió en Evidencia; aquí indica si es fuera de protocolo.">
+        <Select value={data.fuera_protocolo} onChange={v => update('fuera_protocolo', v)}
+          options={[{ value: 'no', label: 'No — dentro de protocolo' }, { value: 'si', label: 'Sí — fuera de protocolo' }]} />
+      </Field>
       <Field label="Tratamiento propuesto" required full error={errors.tratamiento_propuesto}>
         <TextArea value={data.tratamiento_propuesto} onChange={v => update('tratamiento_propuesto', v)}
           rows={3}
