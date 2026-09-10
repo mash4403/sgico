@@ -61,29 +61,121 @@ const contextoALinea = (ctx) => {
   }
 }
 
-// Catálogo de arranque de biomarcadores oncológicos (E3). Ampliable.
-const BIOMARCADOR_OPTS = [
-  'EGFR', 'EGFR T790M', 'ALK', 'ROS1', 'BRAF', 'KRAS', 'KRAS G12C',
-  'HER2 / ERBB2', 'MET', 'RET', 'NTRK', 'PD-L1', 'MSI / MMR',
-  'BRCA1', 'BRCA2', 'PIK3CA', 'ESR1', 'RE (receptor estrógeno)',
-  'RP (receptor progesterona)', 'Ki-67', 'IDH1', 'IDH2', 'FGFR', 'cKIT',
-  'Otro',
-].map(v => ({ value: v, label: v }))
+// Catálogo de biomarcadores con su TIPO de resultado (E3). Ampliable.
+//   hormonal → resultado + % (RE/RP) · indice → % (Ki-67) · her2 → cruces (+FISH si 2+)
+//   pdl1 → resultado + % · msi → estado MSI · mutacion → resultado + detalle · binario → pos/neg
+const BIOMARCADORES = [
+  { v: 'RE (receptor estrógeno)', tipo: 'hormonal' },
+  { v: 'RP (receptor progesterona)', tipo: 'hormonal' },
+  { v: 'Ki-67', tipo: 'indice' },
+  { v: 'HER2 / ERBB2', tipo: 'her2' },
+  { v: 'PD-L1', tipo: 'pdl1' },
+  { v: 'EGFR', tipo: 'mutacion' },
+  { v: 'EGFR T790M', tipo: 'mutacion' },
+  { v: 'ALK', tipo: 'binario' },
+  { v: 'ROS1', tipo: 'binario' },
+  { v: 'BRAF', tipo: 'mutacion' },
+  { v: 'KRAS', tipo: 'mutacion' },
+  { v: 'KRAS G12C', tipo: 'binario' },
+  { v: 'MET', tipo: 'binario' },
+  { v: 'RET', tipo: 'binario' },
+  { v: 'NTRK', tipo: 'binario' },
+  { v: 'MSI / MMR', tipo: 'msi' },
+  { v: 'BRCA1', tipo: 'mutacion' },
+  { v: 'BRCA2', tipo: 'mutacion' },
+  { v: 'PIK3CA', tipo: 'mutacion' },
+  { v: 'ESR1', tipo: 'mutacion' },
+  { v: 'IDH1', tipo: 'mutacion' },
+  { v: 'IDH2', tipo: 'mutacion' },
+  { v: 'FGFR', tipo: 'binario' },
+  { v: 'cKIT', tipo: 'mutacion' },
+  { v: 'Otro', tipo: 'binario' },
+]
+const BIOMARCADOR_OPTS = BIOMARCADORES.map(b => ({ value: b.v, label: b.v }))
+const BIOMARCADOR_TIPO = Object.fromEntries(BIOMARCADORES.map(b => [b.v, b.tipo]))
 
-const RESULTADO_BM_OPTS = [
+const RES_POS_NEG = [
   { value: 'positivo', label: 'Positivo' },
   { value: 'negativo', label: 'Negativo' },
   { value: 'no_evaluable', label: 'No evaluable' },
-  { value: 'indeterminado', label: 'Indeterminado' },
 ]
-const RESULTADO_BM_LABEL = Object.fromEntries(RESULTADO_BM_OPTS.map(o => [o.value, o.label]))
+const RES_MUTACION = [
+  { value: 'positivo', label: 'Positivo (mutado)' },
+  { value: 'negativo', label: 'Negativo (wild-type)' },
+  { value: 'no_evaluable', label: 'No evaluable' },
+]
+const HER2_CRUCES = [
+  { value: '0', label: '0' },
+  { value: '1+', label: '1+' },
+  { value: '2+', label: '2+ (indeterminado)' },
+  { value: '3+', label: '3+' },
+]
+const FISH_OPTS = [
+  { value: 'no_solicitado', label: 'No solicitado' },
+  { value: 'pendiente', label: 'Pendiente' },
+  { value: 'positivo', label: 'Solicitado — positivo (amplificado)' },
+  { value: 'negativo', label: 'Solicitado — negativo (no amplificado)' },
+]
+const MSI_OPTS = [
+  { value: 'mss', label: 'MSS / estable' },
+  { value: 'msi_h', label: 'MSI-H / inestable alto (dMMR)' },
+  { value: 'msi_l', label: 'MSI-L / inestable bajo' },
+  { value: 'no_evaluable', label: 'No evaluable' },
+]
+const RES_LABEL = { positivo: 'Positivo', negativo: 'Negativo', no_evaluable: 'No evaluable', indeterminado: 'Indeterminado' }
+const FISH_LABEL = Object.fromEntries(FISH_OPTS.map(o => [o.value, o.label]))
+const MSI_LABEL = Object.fromEntries(MSI_OPTS.map(o => [o.value, o.label]))
+
+// Interpretación HER2 según cruces (+ FISH si 2+)
+const her2Interp = (cruces, fish) => {
+  if (cruces === '3+') return 'positivo'
+  if (cruces === '0' || cruces === '1+') return 'negativo'
+  if (cruces === '2+') {
+    if (fish === 'positivo') return 'positivo (FISH+)'
+    if (fish === 'negativo') return 'negativo (FISH−)'
+    return `indeterminado (FISH ${FISH_LABEL[fish] || 'pendiente'})`
+  }
+  return null
+}
+
+// Formato de un biomarcador para el resumen de texto
+const fmtBiomarcador = (r) => {
+  const bm = r.biomarcador
+  const tipo = BIOMARCADOR_TIPO[bm] || 'binario'
+  const fecha = r.fecha ? ` (${r.fecha})` : ''
+  let cuerpo
+  switch (tipo) {
+    case 'hormonal':
+      cuerpo = `${RES_LABEL[r.resultado] || r.resultado || '—'}${r.porcentaje ? ` ${r.porcentaje}%` : ''}`
+      break
+    case 'indice':
+      cuerpo = r.porcentaje ? `${r.porcentaje}%` : (RES_LABEL[r.resultado] || '—')
+      break
+    case 'her2': {
+      cuerpo = `${r.cruces || '—'}${r.cruces === '2+' && r.fish ? ` · FISH ${FISH_LABEL[r.fish]}` : ''}`
+      const interp = her2Interp(r.cruces, r.fish)
+      if (interp) cuerpo += ` → ${interp}`
+      break
+    }
+    case 'pdl1':
+      cuerpo = `${RES_LABEL[r.resultado] || '—'}${r.porcentaje ? ` ${r.porcentaje}%` : ''}`
+      break
+    case 'msi':
+      cuerpo = MSI_LABEL[r.resultado] || r.resultado || '—'
+      break
+    case 'mutacion':
+      cuerpo = `${RES_LABEL[r.resultado] || r.resultado || '—'}${r.detalle ? ` — ${r.detalle}` : ''}`
+      break
+    default:
+      cuerpo = RES_LABEL[r.resultado] || r.resultado || '—'
+  }
+  return `${bm}: ${cuerpo}${fecha}`
+}
 
 // Resumen de texto derivado del arreglo (para la columna biomarcadores y las vistas legadas)
 const resumenBiomarcadores = (list) => {
   if (!Array.isArray(list)) return null
-  const items = list
-    .filter(r => r.biomarcador)
-    .map(r => `${r.biomarcador}: ${RESULTADO_BM_LABEL[r.resultado] || r.resultado || '—'}${r.fecha ? ` (${r.fecha})` : ''}`)
+  const items = list.filter(r => r.biomarcador).map(fmtBiomarcador)
   return items.length ? items.join(' · ') : null
 }
 
@@ -991,13 +1083,14 @@ function Select({ value, onChange, options, error, placeholder = 'Seleccione...'
   )
 }
 
-// Sub-formulario repetible de biomarcadores: { biomarcador, resultado, fecha }
+// Sub-formulario repetible de biomarcadores, con campos adaptativos por tipo.
 function BiomarcadoresEditor({ value, onChange }) {
   const rows = Array.isArray(value) ? value : []
   const today = new Date().toISOString().split('T')[0]
   const add = () => onChange([...rows, { biomarcador: '', resultado: '', fecha: '' }])
-  const upd = (i, k, v) => onChange(rows.map((r, idx) => idx === i ? { ...r, [k]: v } : r))
+  const upd = (i, patch) => onChange(rows.map((r, idx) => idx === i ? { ...r, ...patch } : r))
   const rm = (i) => onChange(rows.filter((_, idx) => idx !== i))
+  const lbl = 'block text-[11px] font-medium text-slate-500 mb-1'
   return (
     <div className="md:col-span-2">
       <div className="flex items-center justify-between mb-1.5">
@@ -1011,27 +1104,95 @@ function BiomarcadoresEditor({ value, onChange }) {
         <p className="text-xs text-slate-500">Sin biomarcadores registrados. Agrega los que apliquen (opcional).</p>
       )}
       <div className="space-y-2">
-        {rows.map((r, i) => (
-          <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2 items-end
-                                   bg-slate-50 border border-slate-200 rounded-lg p-2">
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">Biomarcador</label>
-              <Select value={r.biomarcador} onChange={v => upd(i, 'biomarcador', v)} options={BIOMARCADOR_OPTS} />
+        {rows.map((r, i) => {
+          const tipo = BIOMARCADOR_TIPO[r.biomarcador] || 'binario'
+          return (
+            <div key={i} className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-end">
+                <div>
+                  <label className={lbl}>Biomarcador</label>
+                  <Select value={r.biomarcador} onChange={v => upd(i, { biomarcador: v })} options={BIOMARCADOR_OPTS} />
+                </div>
+                <div>
+                  <label className={lbl}>Fecha</label>
+                  <Input type="date" value={r.fecha} max={today} onChange={v => upd(i, { fecha: v })} />
+                </div>
+                <button type="button" onClick={() => rm(i)} title="Quitar"
+                  className="h-[42px] w-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {r.biomarcador && (
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {(tipo === 'hormonal' || tipo === 'pdl1') && (
+                    <>
+                      <div>
+                        <label className={lbl}>Resultado</label>
+                        <Select value={r.resultado} onChange={v => upd(i, { resultado: v })} options={RES_POS_NEG} />
+                      </div>
+                      <div>
+                        <label className={lbl}>{tipo === 'pdl1' ? 'Expresión % (TPS/CPS)' : 'Porcentaje (%)'}</label>
+                        <Input type="number" min="0" max="100" value={r.porcentaje || ''}
+                          onChange={v => upd(i, { porcentaje: v })} placeholder="Ej. 90" />
+                      </div>
+                    </>
+                  )}
+                  {tipo === 'indice' && (
+                    <div>
+                      <label className={lbl}>Índice de proliferación (%)</label>
+                      <Input type="number" min="0" max="100" value={r.porcentaje || ''}
+                        onChange={v => upd(i, { porcentaje: v })} placeholder="Ej. 30" />
+                    </div>
+                  )}
+                  {tipo === 'her2' && (
+                    <>
+                      <div>
+                        <label className={lbl}>IHQ (cruces)</label>
+                        <Select value={r.cruces} onChange={v => upd(i, { cruces: v })} options={HER2_CRUCES} placeholder="0 / 1+ / 2+ / 3+" />
+                      </div>
+                      {r.cruces === '2+' && (
+                        <div>
+                          <label className={lbl}>FISH (requerido en 2+)</label>
+                          <Select value={r.fish} onChange={v => upd(i, { fish: v })} options={FISH_OPTS} />
+                        </div>
+                      )}
+                      {her2Interp(r.cruces, r.fish) && (
+                        <p className="sm:col-span-2 text-[11px] text-slate-600">
+                          Interpretación: <b>{her2Interp(r.cruces, r.fish)}</b>
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {tipo === 'msi' && (
+                    <div>
+                      <label className={lbl}>Estado</label>
+                      <Select value={r.resultado} onChange={v => upd(i, { resultado: v })} options={MSI_OPTS} />
+                    </div>
+                  )}
+                  {tipo === 'mutacion' && (
+                    <>
+                      <div>
+                        <label className={lbl}>Resultado</label>
+                        <Select value={r.resultado} onChange={v => upd(i, { resultado: v })} options={RES_MUTACION} />
+                      </div>
+                      <div>
+                        <label className={lbl}>Detalle (alteración)</label>
+                        <Input value={r.detalle || ''} onChange={v => upd(i, { detalle: v })} placeholder="Ej. exón 19 del, L858R" />
+                      </div>
+                    </>
+                  )}
+                  {tipo === 'binario' && (
+                    <div>
+                      <label className={lbl}>Resultado</label>
+                      <Select value={r.resultado} onChange={v => upd(i, { resultado: v })} options={RES_POS_NEG} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">Resultado</label>
-              <Select value={r.resultado} onChange={v => upd(i, 'resultado', v)} options={RESULTADO_BM_OPTS} />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">Fecha</label>
-              <Input type="date" value={r.fecha} max={today} onChange={v => upd(i, 'fecha', v)} />
-            </div>
-            <button type="button" onClick={() => rm(i)} title="Quitar"
-              className="h-[42px] w-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
