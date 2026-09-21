@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { formatDateTime, generarTextoHistoriaClinica } from '../lib/utils'
 import { copiarTextoAlPortapapeles } from '../lib/clipboard'
+import ActaDocumento from '../components/ActaDocumento'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Gavel, Printer, Plus, X, Lock,
@@ -36,6 +37,7 @@ const ROL_OPTS = [
   { value: 'invitado',      label: 'Invitado' },
   { value: 'otro',          label: 'Otro' },
 ]
+const ROL_LABEL = Object.fromEntries(ROL_OPTS.map(o => [o.value, o.label]))
 
 const DECISION_BADGE = {
   pendiente:      'bg-amber-100 text-amber-800 ring-amber-300',
@@ -58,6 +60,7 @@ const emptyForm = {
   decision: '',
   intencion: '',
   decision_final: '',
+  observaciones: '',
   costo_aprobado: '',   // costo que el comité aprobó (casos_comite.costo_molecula_aprobada)
   participantes: [],
 }
@@ -76,18 +79,20 @@ export default function MesaComite() {
   const [caso, setCaso] = useState(null)
   const [acta, setActa] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const [roster, setRoster] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [preview, setPreview] = useState(false)
 
   useEffect(() => { cargarDatos() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargarDatos() {
     setLoading(true)
     try {
-      const [casoRes, actaRes] = await Promise.all([
+      const [casoRes, actaRes, rosterRes] = await Promise.all([
         supabase
           .from('casos_comite')
-          .select('*, paciente:pacientes(*)')
+          .select('*, paciente:pacientes(*, eps:eps(nombre)), sesion:sesiones_comite(fecha, tipo_comite)')
           .eq('id', id)
           .single(),
         supabase
@@ -95,10 +100,16 @@ export default function MesaComite() {
           .select('*')
           .eq('caso_id', id)
           .maybeSingle(),
+        supabase
+          .from('participantes_comite')
+          .select('id, nombre, rol, especialidad, registro, firma_path')
+          .eq('activo', true)
+          .order('nombre', { ascending: true }),
       ])
 
       if (casoRes.error) throw casoRes.error
       setCaso(casoRes.data)
+      if (!rosterRes.error) setRoster(rosterRes.data || [])
 
       if (actaRes.error) throw actaRes.error
       if (actaRes.data) {
@@ -109,6 +120,7 @@ export default function MesaComite() {
           decision:        actaRes.data.decision || '',
           intencion:       actaRes.data.intencion || '',
           decision_final:  actaRes.data.decision_final || '',
+          observaciones:   actaRes.data.observaciones || '',
           costo_aprobado:  costoAprobadoInicial(casoRes.data),
           participantes:   Array.isArray(actaRes.data.participantes) ? actaRes.data.participantes : [],
         })
@@ -154,24 +166,47 @@ export default function MesaComite() {
     toast.success('Resumen regenerado')
   }
 
-  const addParticipante = () =>
-    setForm(f => ({ ...f, participantes: [...f.participantes, { nombre: '', rol: '', especialidad: '' }] }))
+  // Marca / desmarca la asistencia de un miembro del roster.
+  const toggleAsistio = (miembro) =>
+    setForm(f => {
+      const yaEsta = f.participantes.some(p => p.participante_id === miembro.id)
+      const participantes = yaEsta
+        ? f.participantes.filter(p => p.participante_id !== miembro.id)
+        : [...f.participantes, {
+            participante_id: miembro.id,
+            nombre: miembro.nombre,
+            rol: miembro.rol || '',
+            especialidad: miembro.especialidad || '',
+            registro: miembro.registro || '',
+            firma_path: miembro.firma_path || null,
+          }]
+      return { ...f, participantes }
+    })
 
-  const updateParticipante = (i, key, value) =>
-    setForm(f => ({
-      ...f,
-      participantes: f.participantes.map((p, idx) => idx === i ? { ...p, [key]: value } : p),
-    }))
+  // Hash SHA-256 del contenido del acta (evidencia de integridad al firmar).
+  async function hashActa() {
+    const canonical = JSON.stringify({
+      resumen_clinico: form.resumen_clinico,
+      discusion: form.discusion,
+      decision: form.decision,
+      intencion: form.intencion,
+      decision_final: form.decision_final,
+      asistentes: form.participantes.map(p => p.participante_id ?? p.nombre),
+    })
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  }
 
-  const removeParticipante = (i) =>
-    setForm(f => ({ ...f, participantes: f.participantes.filter((_, idx) => idx !== i) }))
-
-  function buildPayload(firmada) {
+  function buildPayload(firmada, extra = {}) {
     const participantes = form.participantes
       .map(p => ({
+        participante_id: p.participante_id ?? null,
         nombre: (p.nombre || '').trim(),
         rol: p.rol || '',
         especialidad: (p.especialidad || '').trim(),
+        registro: p.registro || '',
+        firma_path: p.firma_path || null,
+        fecha_firma: firmada ? (p.fecha_firma || new Date().toISOString()) : (p.fecha_firma || null),
       }))
       .filter(p => p.nombre)
     return {
@@ -181,8 +216,10 @@ export default function MesaComite() {
       decision: form.decision,
       intencion: form.intencion || null,
       decision_final: form.decision_final || null,
+      observaciones: form.observaciones || null,
       participantes,
       firmada,
+      ...extra,
     }
   }
 
@@ -206,15 +243,22 @@ export default function MesaComite() {
   }
 
   async function firmar() {
+    if (form.participantes.length === 0) {
+      toast.error('Marca al menos un asistente antes de firmar el acta')
+      return
+    }
     const ok = window.confirm(
-      'Al firmar, el acta queda bloqueada y se actualiza la decisión del caso. ¿Continuar?'
+      'Al firmar, el acta queda bloqueada con la firma de los asistentes y se actualiza la decisión del caso. ¿Continuar?'
     )
     if (!ok) return
     setSaving(true)
     try {
+      const { data: userData } = await supabase.auth.getUser()
+      const cerrada_por = userData?.user?.email || userData?.user?.id || null
+      const hash_contenido = await hashActa()
       const { error } = await supabase
         .from('actas_comite')
-        .upsert(buildPayload(true), { onConflict: 'caso_id' })
+        .upsert(buildPayload(true, { cerrada_por, hash_contenido }), { onConflict: 'caso_id' })
       if (error) throw error
       await persistirCostoAprobado()
       // Firmar el acta = el caso fue presentado en comité: sale de la agenda
@@ -267,6 +311,44 @@ export default function MesaComite() {
   }
   if (!caso) return null
 
+  // Vista de documento: acta firmada (solo lectura) o vista previa del borrador.
+  if (readOnly || preview) {
+    return (
+      <div className="max-w-5xl mx-auto p-4 lg:p-6 print:p-0 print:max-w-full">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 no-print">
+          {readOnly ? (
+            <button onClick={() => navigate(`/casos/${id}`)}
+              className="flex items-center gap-2 text-sm text-slate-300 hover:text-white font-medium">
+              <ArrowLeft className="w-4 h-4" /> Volver al caso
+            </button>
+          ) : (
+            <button onClick={() => setPreview(false)}
+              className="flex items-center gap-2 text-sm text-slate-300 hover:text-white font-medium">
+              <ArrowLeft className="w-4 h-4" /> Volver a editar
+            </button>
+          )}
+          <div className="flex items-center gap-2">
+            {readOnly && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ring-1 bg-emerald-100 text-emerald-800 ring-emerald-300">
+                <Lock className="w-3.5 h-3.5" />
+                Acta firmada el {formatDateTime(acta.fecha_firma)}
+              </span>
+            )}
+            <button onClick={copiarAHistoriaClinica}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-800 font-semibold text-sm hover:bg-slate-50">
+              <ClipboardCopy className="w-4 h-4" /> Copiar a historia clínica
+            </button>
+            <button onClick={() => window.print()}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-pulso text-tinta font-semibold text-sm hover:bg-pulso-oscuro">
+              <Printer className="w-4 h-4" /> Imprimir / PDF
+            </button>
+          </div>
+        </div>
+        <ActaDocumento caso={caso} form={form} acta={acta} />
+      </div>
+    )
+  }
+
   const badgeColor = DECISION_BADGE[caso.decision] || DECISION_BADGE.pendiente
   const badgeLabel = DECISION_LABEL[caso.decision] || caso.decision
   const diagnostico = [caso.cie10, caso.diagnostico_descripcion].filter(Boolean).join(' — ')
@@ -280,12 +362,10 @@ export default function MesaComite() {
             className="flex items-center gap-2 text-sm text-slate-700 hover:text-slate-900 font-medium">
             <ArrowLeft className="w-4 h-4" /> Volver al caso
           </button>
-          {readOnly && (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ring-1 bg-emerald-100 text-emerald-800 ring-emerald-300">
-              <Lock className="w-3.5 h-3.5" />
-              Acta firmada el {formatDateTime(acta.fecha_firma)}
-            </span>
-          )}
+          <button onClick={() => setPreview(true)}
+            className="flex items-center gap-2 text-sm text-blue-700 hover:text-blue-900 font-medium">
+            <FileText className="w-4 h-4" /> Vista previa del acta
+          </button>
         </div>
 
         <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -343,13 +423,10 @@ export default function MesaComite() {
             className={`${inputBase} resize-none`} />
         </SectionCard>
 
-        <SectionCard title="Participantes" icon={Users}>
-          <ParticipantesEditor
-            value={form.participantes}
-            readOnly={readOnly}
-            onAdd={addParticipante}
-            onUpdate={updateParticipante}
-            onRemove={removeParticipante} />
+        <SectionCard title="Asistencia y firmas" icon={Users}>
+          {readOnly
+            ? <FirmasView participantes={form.participantes} cerradaPor={acta?.cerrada_por} />
+            : <AsistenciaEditor roster={roster} seleccionados={form.participantes} onToggle={toggleAsistio} />}
         </SectionCard>
 
         <SectionCard title="Decisión" icon={FileSignature}>
@@ -401,6 +478,15 @@ export default function MesaComite() {
                 className={`${inputBase} resize-none`} />
             </div>
           </div>
+        </SectionCard>
+
+        <SectionCard title="Observaciones" icon={ClipboardList}>
+          <textarea
+            value={form.observaciones}
+            onChange={e => setField('observaciones', e.target.value)}
+            disabled={readOnly} rows={4}
+            placeholder="Observaciones del acta: información al paciente, constancias, salvedades..."
+            className={`${inputBase} resize-none`} />
         </SectionCard>
       </div>
 
@@ -517,13 +603,15 @@ function generarResumenClinico(caso) {
     `ESTADIO: ${resumenVal(caso.estadio_clinico)} (TNM: ${resumenVal(caso.tnm)})`,
     `HISTOLOGÍA: ${resumenVal(caso.histologia)}`,
     `BIOMARCADORES: ${resumenVal(caso.biomarcadores)}`,
+    `MOLECULAR/NGS: ${resumenVal(caso.estudios_moleculares)}`,
   ].join('\n')
 
-  // ECOG / COMORBILIDADES / HÁBITOS
+  // CAPACIDAD FUNCIONAL / COMORBILIDADES / HÁBITOS
   const tabaco = TABACO_RESUMEN[caso.habito_tabaquico] || 'No registrado'
   const alcohol = ALCOHOL_RESUMEN[caso.habito_alcohol] || 'No registrado'
+  const evaTxt = caso.eva != null ? `${caso.eva}/10` : 'No registrado'
   const bloque2 = [
-    `ECOG: ${resumenVal(caso.ecog)}`,
+    `ECOG: ${resumenVal(caso.ecog)} · EVA: ${evaTxt}`,
     `COMORBILIDADES: ${resumenVal(caso.comorbilidades)}`,
     `HÁBITOS: ${tabaco}, ${alcohol}`,
   ].join('\n')
@@ -584,49 +672,91 @@ function generarResumenClinico(caso) {
     .join('\n\n').trim()
 }
 
-function ParticipantesEditor({ value, readOnly, onAdd, onUpdate, onRemove }) {
+// Selección de asistencia desde el roster de miembros (modo edición).
+function AsistenciaEditor({ roster, seleccionados, onToggle }) {
+  const isSel = (id) => seleccionados.some(p => p.participante_id === id)
+  if (!roster.length) {
+    return (
+      <p className="text-sm text-slate-600">
+        No hay miembros activos. Agrégalos en{' '}
+        <Link to="/miembros" className="text-blue-700 font-medium underline">Miembros del comité</Link>{' '}
+        y sube sus firmas antes del comité.
+      </p>
+    )
+  }
   return (
-    <div className="space-y-3">
-      {value.length === 0 && (
-        <p className="text-sm text-slate-500 italic">Sin participantes registrados.</p>
-      )}
-      {value.map((p, i) => (
-        <div key={i} className="bg-slate-50 rounded-lg border border-slate-200 p-3">
-          <div className="flex items-start gap-2">
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <input
-                value={p.nombre || ''}
-                onChange={e => onUpdate(i, 'nombre', e.target.value)}
-                disabled={readOnly} placeholder="Nombre"
-                className={inputBase} />
-              <select
-                value={p.rol || ''}
-                onChange={e => onUpdate(i, 'rol', e.target.value)}
-                disabled={readOnly} className={inputBase}>
-                <option value="">Rol...</option>
-                {ROL_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              <input
-                value={p.especialidad || ''}
-                onChange={e => onUpdate(i, 'especialidad', e.target.value)}
-                disabled={readOnly} placeholder="Especialidad"
-                className={inputBase} />
+    <div className="space-y-2">
+      <p className="text-xs text-slate-500">
+        Marca quiénes asistieron. Al firmar el acta se estampa la firma de cada asistente.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {roster.map(m => {
+          const sel = isSel(m.id)
+          return (
+            <label key={m.id}
+              className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${sel ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}>
+              <input type="checkbox" checked={sel} onChange={() => onToggle(m)} className="w-4 h-4 accent-emerald-600" />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-900 truncate">{m.nombre}</div>
+                <div className="text-xs text-slate-500 truncate">
+                  {ROL_LABEL[m.rol] || m.rol || 'Sin rol'}{m.especialidad ? ` · ${m.especialidad}` : ''}
+                  {!m.firma_path && <span className="text-amber-600"> · sin firma</span>}
+                </div>
+              </div>
+            </label>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Bloque de firmas del acta firmada (solo lectura / impresión).
+function FirmasView({ participantes, cerradaPor }) {
+  if (!participantes.length) {
+    return <p className="text-sm text-slate-500 italic">Sin asistentes registrados.</p>
+  }
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {participantes.map((p, i) => (
+          <div key={i} className="border border-slate-300 rounded-lg p-3">
+            <FirmaImg path={p.firma_path} />
+            <div className="mt-2 border-t border-slate-300 pt-2">
+              <div className="text-sm font-semibold text-slate-900">{p.nombre}</div>
+              <div className="text-xs text-slate-500">
+                {ROL_LABEL[p.rol] || p.rol || ''}{p.especialidad ? ` · ${p.especialidad}` : ''}
+              </div>
+              {p.fecha_firma && (
+                <div className="text-[11px] text-slate-400 mt-0.5">Firmado: {formatDateTime(p.fecha_firma)}</div>
+              )}
             </div>
-            {!readOnly && (
-              <button onClick={() => onRemove(i)} title="Eliminar participante"
-                className="shrink-0 mt-1 p-1.5 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50">
-                <X className="w-4 h-4" />
-              </button>
-            )}
           </div>
-        </div>
-      ))}
-      {!readOnly && (
-        <button onClick={onAdd}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
-          <Plus className="w-4 h-4" /> Agregar participante
-        </button>
+        ))}
+      </div>
+      {cerradaPor && (
+        <p className="text-xs text-slate-500">Acta cerrada por <b>{cerradaPor}</b>.</p>
       )}
+    </div>
+  )
+}
+
+// Firma desde una URL firmada temporal del bucket privado.
+function FirmaImg({ path }) {
+  const [url, setUrl] = useState(null)
+  useEffect(() => {
+    let vivo = true
+    if (!path) { setUrl(null); return }
+    supabase.storage.from('firmas').createSignedUrl(path, 300).then(({ data }) => {
+      if (vivo) setUrl(data?.signedUrl || null)
+    })
+    return () => { vivo = false }
+  }, [path])
+  return (
+    <div className="h-16 flex items-center justify-center">
+      {url
+        ? <img src={url} alt="Firma" className="max-h-16 max-w-full object-contain" />
+        : <span className="text-xs text-slate-400 italic">{path ? 'Cargando firma…' : 'Sin firma en archivo'}</span>}
     </div>
   )
 }

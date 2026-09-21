@@ -11,7 +11,7 @@ import {
   ArrowLeft, Printer, Gavel, Clock, FileText, Download,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
   Pill, BookOpen, MessageSquareQuote, DollarSign, Paperclip,
-  CheckCircle2, XCircle, AlertCircle, Loader2, ShieldCheck, ClipboardCopy,
+  CheckCircle2, XCircle, AlertCircle, Loader2, ShieldCheck, ClipboardCopy, Activity,
 } from 'lucide-react'
 
 const DECISION_LABELS = {
@@ -258,14 +258,26 @@ export default function CasoDetalle() {
         <KV label="Código CIE-10"          value={caso.cie10 || caso.protocolo?.cie10} />
         <KV label="Fecha diagnóstico"      value={formatDate(caso.fecha_diagnostico)} />
         <KV label="Descripción"            value={caso.diagnostico_descripcion} full />
-        <KV label="Histología"             value={caso.histologia} full />
+        <KV label="Patología"              value={caso.patologia_realizada == null ? null : (caso.patologia_realizada ? 'Sí' : 'No')} />
+        {caso.patologia_realizada !== false ? <KV label="Fecha patología" value={formatDate(caso.fecha_patologia)} /> : null}
+        {caso.patologia_realizada !== false ? <KV label="Histología" value={caso.histologia} full /> : null}
+        {caso.patologia_realizada !== false ? <KV label="Descripción patología" value={caso.estudios_patologia} full /> : null}
+        <KV label="Inmunohistoquímica"     value={caso.inmunohistoquimica_realizada == null ? null : (caso.inmunohistoquimica_realizada ? 'Sí' : 'No')} />
+        {caso.inmunohistoquimica_realizada !== false && caso.inmunohistoquimica ? <KV label="Descripción IHQ" value={caso.inmunohistoquimica} full /> : null}
         <KV label="Estadio clínico"        value={caso.estadio_clinico ? `Estadio ${caso.estadio_clinico}` : null} />
         <KV label="TNM"                    value={caso.tnm} />
         <KV label="Biomarcadores"          value={caso.biomarcadores} full />
+        <KV label="Estudios moleculares / NGS" value={caso.estudios_moleculares} full />
+        <KV label="Fecha molecular / NGS"  value={formatDate(caso.fecha_moleculares)} />
+      </Section>
+
+      <Section title="Capacidad funcional" icon={Activity}>
+        <KV label="ECOG"                 value={ECOG_LABELS[caso.ecog] || caso.ecog} />
+        <KV label="EVA (dolor)"          value={caso.eva != null ? `${caso.eva} / 10` : null} />
+        <KV label="Estado físico actual" value={caso.estado_fisico} full />
       </Section>
 
       <Section title="Antecedentes y comorbilidades" icon={HeartPulse}>
-        <KV label="ECOG"               value={ECOG_LABELS[caso.ecog] || caso.ecog} />
         <KV label="Hábito tabáquico"   value={TABACO_LABELS[caso.habito_tabaquico] || caso.habito_tabaquico} />
         <KV label="Hábito alcohólico"  value={ALCOHOL_LABELS[caso.habito_alcohol] || caso.habito_alcohol} />
         <KV label="Comorbilidades"     value={caso.comorbilidades} full />
@@ -273,12 +285,9 @@ export default function CasoDetalle() {
         <KV label="Medicación actual"  value={caso.medicacion_actual} full />
       </Section>
 
-      <Section title="Estudios e imágenes" icon={FlaskConical}>
+      <Section title="Estudios paraclínicos" icon={FlaskConical}>
         <KV label="Imágenes diagnósticas" value={caso.estudios_imagenes} full />
         <KV label="Laboratorio"           value={caso.estudios_laboratorio} full />
-        <KV label="Patología"             value={caso.estudios_patologia} full />
-        <KV label="Estudios moleculares"  value={caso.estudios_moleculares} full />
-        <KV label="Fecha último estudio"  value={formatDate(caso.fecha_ultimo_estudio)} />
       </Section>
 
       <Section title="Tratamientos previos y actual" icon={Pill}>

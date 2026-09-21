@@ -11,6 +11,7 @@ import PresentacionComite from './pages/PresentacionComite'
 import Agenda from './pages/Agenda'
 import MesaComite from './pages/MesaComite'
 import Seguimientos from './pages/Seguimientos'
+import MiembrosComite from './pages/MiembrosComite'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -59,6 +60,7 @@ export default function App() {
           <Route path="/presentar" element={<PresentacionComite />} />
           <Route path="/presentar/:id" element={<PresentacionComite />} />
           <Route path="/seguimientos" element={<Seguimientos />} />
+          <Route path="/miembros" element={<MiembrosComite />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>

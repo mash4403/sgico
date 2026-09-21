@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
   LayoutDashboard, FolderOpen, ClipboardCheck,
-  ClipboardPlus, LogOut, CalendarClock
+  ClipboardPlus, LogOut, CalendarClock, Users
 } from 'lucide-react'
 import ElCircuito from './ElCircuito'
 
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/agenda', icon: CalendarClock, label: 'Casos para comité' },
   { to: '/casos', icon: FolderOpen, label: 'Casos' },
   { to: '/seguimientos', icon: ClipboardCheck, label: 'Seguimientos' },
+  { to: '/miembros', icon: Users, label: 'Miembros del comité' },
 ]
 
 export default function Layout({ children, session }) {
@@ -25,7 +26,7 @@ export default function Layout({ children, session }) {
   return (
     <div className="min-h-screen flex">
       {/* Sidebar */}
-      <aside className="w-60 border-r border-niebla/15 flex flex-col bg-tinta-2">
+      <aside className="no-print w-60 border-r border-niebla/15 flex flex-col bg-tinta-2">
         {/* Logo */}
         <div className="p-5 border-b border-niebla/15">
           <div className="flex items-center gap-3">
@@ -71,8 +72,8 @@ export default function Layout({ children, session }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-6 max-w-[1200px]">
+      <main className="flex-1 overflow-auto print:overflow-visible">
+        <div className="p-6 max-w-[1200px] print:p-0 print:max-w-none">
           {children}
         </div>
       </main>

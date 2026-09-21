@@ -9,7 +9,7 @@ import {
   ChevronLeft, ChevronRight, Send, Check,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
   Pill, BookOpen, MessageSquareQuote, DollarSign, Paperclip, FileCheck2,
-  Users, CalendarPlus, X,
+  Users, CalendarPlus, X, Activity,
 } from 'lucide-react'
 
 const TIPO_COMITE_OPTS = [
@@ -23,6 +23,7 @@ const STEPS = [
   { id: 'demograf',    label: 'Demográficos',    icon: User },
   { id: 'diagnostico', label: 'Diagnóstico',     icon: Stethoscope },
   { id: 'antec',       label: 'Antecedentes',    icon: HeartPulse },
+  { id: 'capacidad',   label: 'Capacidad funcional', icon: Activity },
   { id: 'estudios',    label: 'Estudios',        icon: FlaskConical },
   { id: 'tratamientos',label: 'Tratamientos',    icon: Pill },
   { id: 'valoraciones',label: 'Valoraciones',    icon: Users },
@@ -217,20 +218,25 @@ const initialState = {
   documento: '', tipo_documento: 'CC', nombre: '', fecha_nacimiento: '',
   genero: '', telefono1: '',
 
-  // 3. Diagnóstico
-  cie10: '', diagnostico_descripcion: '', histologia: '',
+  // 3. Diagnóstico (incluye patología, IHQ y molecular/NGS)
+  cie10: '', diagnostico_descripcion: '',
+  patologia_realizada: '', histologia: '',
+  estudios_patologia: '', fecha_patologia: '',
+  inmunohistoquimica_realizada: '', inmunohistoquimica: '',
   estadio_clinico: '', tnm_t: '', tnm_n: '', tnm_m: '',
   fecha_diagnostico: '', biomarcadores: '', biomarcadores_list: [],
+  estudios_moleculares: '', fecha_moleculares: '',
 
   // 4. Antecedentes
-  ecog: '', comorbilidades: '', alergias: '',
+  comorbilidades: '', alergias: '',
   habito_tabaquico: '', habito_alcohol: '',
   medicacion_actual: '',
 
-  // 5. Estudios
+  // 5. Capacidad funcional
+  ecog: '', eva: '', estado_fisico: '',
+
+  // 6. Estudios (paraclínicos)
   estudios_imagenes: '', imagenes_list: [], estudios_laboratorio: '',
-  estudios_patologia: '', estudios_moleculares: '',
-  fecha_patologia: '', fecha_moleculares: '',
 
   // 6. Tratamientos
   contexto_actual: '',
@@ -420,24 +426,38 @@ export default function PresentacionComite() {
         noFuture('fecha_nacimiento')
         break
       case 2:
-        ;['cie10','diagnostico_descripcion','histologia','estadio_clinico',
+        ;['cie10','diagnostico_descripcion','estadio_clinico',
           'tnm_t','tnm_n','tnm_m','fecha_diagnostico']
           .forEach(f => req(f))
-        // biomarcadores: sub-formulario estructurado, opcional (0..n filas)
         noFuture('fecha_diagnostico')
+        // Patología (sí/no). Si sí, histología y descripción son requeridas.
+        req('patologia_realizada')
+        if (data.patologia_realizada === 'si') {
+          req('histologia'); req('estudios_patologia')
+          noFuture('fecha_patologia')
+        }
+        // Inmunohistoquímica (sí/no). Si sí, descripción requerida.
+        req('inmunohistoquimica_realizada')
+        if (data.inmunohistoquimica_realizada === 'si') req('inmunohistoquimica')
+        // Molecular / NGS (diagnóstico)
+        req('estudios_moleculares'); noFuture('fecha_moleculares')
+        // biomarcadores: sub-formulario estructurado, opcional (0..n filas)
         break
       case 3:
-        req('ecog', { allowNA: false })
         ;['comorbilidades','alergias','habito_tabaquico',
           'habito_alcohol','medicacion_actual'].forEach(f => req(f))
         break
       case 4:
-        ;['estudios_laboratorio','estudios_patologia',
-          'estudios_moleculares'].forEach(f => req(f))
-        // imágenes: sub-formulario estructurado, opcional (0..n filas)
-        noFuture('fecha_patologia'); noFuture('fecha_moleculares')
+        // Capacidad funcional
+        req('ecog', { allowNA: false })
+        req('eva')
+        req('estado_fisico')
         break
       case 5:
+        // Estudios (paraclínicos): solo laboratorio requerido; imágenes opcionales.
+        req('estudios_laboratorio')
+        break
+      case 6:
         // Contexto terapéutico y tratamiento actual son requeridos
         req('contexto_actual')
         if (!esPacienteNaive(data.contexto_actual)) req('tratamiento_actual')
@@ -446,18 +466,18 @@ export default function PresentacionComite() {
           'tratamiento_rt','tratamiento_dirigido','respuesta_previa']
           .forEach(f => req(f))
         break
-      case 6:
+      case 7:
         // Valoraciones interdisciplinarias — opcionales, sin validación
         break
-      case 7:
+      case 8:
         req('protocolo_id'); req('evidencia_referencia')
         req('pfs_esperado_estudio'); req('os_esperado_estudio')
         break
-      case 8:
+      case 9:
         req('pregunta_comite'); req('tratamiento_propuesto')
         req('justificacion_clinica')
         break
-      case 9:
+      case 10:
         // El paciente naive no tiene tratamiento actual que costear
         if (!esPacienteNaive(data.contexto_actual)) {
           req('costo_ciclo_actual'); req('dias_ciclo_actual')
@@ -465,7 +485,7 @@ export default function PresentacionComite() {
         }
         req('costo_ciclo_propuesto'); req('dias_ciclo_propuesto')
         break
-      case 10:
+      case 11:
         break
     }
     setErrors(errs)
@@ -661,7 +681,14 @@ export default function PresentacionComite() {
 
         // Clínicos detallados
         diagnostico_descripcion: clean(data.diagnostico_descripcion),
-        histologia: clean(data.histologia),
+        // Patología (sí/no). Histología y descripción solo si hubo patología.
+        patologia_realizada: data.patologia_realizada === 'si' ? true
+                           : data.patologia_realizada === 'no' ? false : null,
+        histologia: data.patologia_realizada === 'si' ? clean(data.histologia) : null,
+        // Inmunohistoquímica (sí/no) + descripción
+        inmunohistoquimica_realizada: data.inmunohistoquimica_realizada === 'si' ? true
+                                    : data.inmunohistoquimica_realizada === 'no' ? false : null,
+        inmunohistoquimica: data.inmunohistoquimica_realizada === 'si' ? clean(data.inmunohistoquimica) : null,
         estadio_clinico: clean(data.estadio_clinico),
         tnm: armarTNM(data),
         fecha_diagnostico: cleanDate(data.fecha_diagnostico),
@@ -669,7 +696,10 @@ export default function PresentacionComite() {
         biomarcadores: resumenBiomarcadores(data.biomarcadores_list) || clean(data.biomarcadores),
         biomarcadores_estructurados: (data.biomarcadores_list?.length ? data.biomarcadores_list : null),
 
+        // Capacidad funcional
         ecog: clean(data.ecog),
+        eva: (data.eva === '' || data.eva === NA) ? null : Number(data.eva),
+        estado_fisico: clean(data.estado_fisico),
         comorbilidades: clean(data.comorbilidades),
         alergias: clean(data.alergias),
         habito_tabaquico: clean(data.habito_tabaquico),
@@ -679,9 +709,9 @@ export default function PresentacionComite() {
         estudios_imagenes: resumenImagenes(data.imagenes_list) || clean(data.estudios_imagenes),
         imagenes_estructuradas: (data.imagenes_list?.length ? data.imagenes_list : null),
         estudios_laboratorio: clean(data.estudios_laboratorio),
-        estudios_patologia: clean(data.estudios_patologia),
+        estudios_patologia: data.patologia_realizada === 'si' ? clean(data.estudios_patologia) : null,
         estudios_moleculares: clean(data.estudios_moleculares),
-        fecha_patologia: cleanDate(data.fecha_patologia),
+        fecha_patologia: data.patologia_realizada === 'si' ? cleanDate(data.fecha_patologia) : null,
         fecha_moleculares: cleanDate(data.fecha_moleculares),
 
         tratamiento_quirurgico: clean(data.tratamiento_quirurgico),
@@ -796,13 +826,14 @@ export default function PresentacionComite() {
         {step === 1 && <StepDemograficos {...{ data, update, errors }} />}
         {step === 2 && <StepDiagnostico {...{ data, update, errors, toggleNA }} />}
         {step === 3 && <StepAntecedentes {...{ data, update, errors, toggleNA }} />}
-        {step === 4 && <StepEstudios {...{ data, update, errors, toggleNA }} />}
-        {step === 5 && <StepTratamientos {...{ data, update, updateContextoActual, errors, toggleNA }} />}
-        {step === 6 && <StepValoraciones {...{ data, update }} />}
-        {step === 7 && <StepEvidencia {...{ data, update, errors, protocolos }} />}
-        {step === 8 && <StepPregunta {...{ data, update, errors }} />}
-        {step === 9 && <StepCostos {...{ data, update, errors, toggleNA, proyeccion }} />}
-        {step === 10 && <StepAdjuntos {...{ data, update, errors }} />}
+        {step === 4 && <StepCapacidad {...{ data, update, errors, toggleNA }} />}
+        {step === 5 && <StepEstudios {...{ data, update, errors, toggleNA }} />}
+        {step === 6 && <StepTratamientos {...{ data, update, updateContextoActual, errors, toggleNA }} />}
+        {step === 7 && <StepValoraciones {...{ data, update }} />}
+        {step === 8 && <StepEvidencia {...{ data, update, errors, protocolos }} />}
+        {step === 9 && <StepPregunta {...{ data, update, errors }} />}
+        {step === 10 && <StepCostos {...{ data, update, errors, toggleNA, proyeccion }} />}
+        {step === 11 && <StepAdjuntos {...{ data, update, errors }} />}
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
@@ -1435,9 +1466,13 @@ function StepDemograficos({ data, update, errors }) {
   )
 }
 
+const SI_NO_OPTS = [{ value: 'si', label: 'Sí' }, { value: 'no', label: 'No' }]
+
 function StepDiagnostico({ data, update, errors, toggleNA }) {
+  const conPatologia = data.patologia_realizada === 'si'
+  const conIHQ = data.inmunohistoquimica_realizada === 'si'
   return (
-    <Section title="Diagnóstico oncológico" description="Codificación CIE-10, histología y estadificación TNM" icon={Stethoscope}>
+    <Section title="Diagnóstico oncológico" description="CIE-10, patología, inmunohistoquímica, TNM y molecular" icon={Stethoscope}>
       <Field label="Diagnóstico (CIE-10)" required full error={errors.cie10}
         hint="Busca por el diagnóstico (ej. «colon», «mama») y selecciona el código. No hace falta digitarlo.">
         <Cie10Search value={data.cie10} error={errors.cie10}
@@ -1461,12 +1496,51 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
           placeholder="Ej. Adenocarcinoma de mama derecha, RH+/HER2-, estadio IV con metástasis hepáticas"
           error={errors.diagnostico_descripcion} />
       </Field>
-      <Field label="Histología" required full error={errors.histologia}
-        hint="Selección tipo CAP, filtrada por el diagnóstico. Puedes buscar por nombre o sinónimo.">
-        <HistologiaSearch value={data.histologia} error={errors.histologia}
-          grupo={CIE10_INDEX[data.cie10]?.subgrupo}
-          onSelect={v => update('histologia', v)} />
+
+      {/* Patología */}
+      <Field label="¿Se realizó patología?" required error={errors.patologia_realizada}>
+        <Select value={data.patologia_realizada} onChange={v => update('patologia_realizada', v)}
+          options={SI_NO_OPTS} error={errors.patologia_realizada} />
       </Field>
+      <div />
+      {conPatologia && (
+        <>
+          <Field label="Histología" required full error={errors.histologia}
+            hint="Selección tipo CAP, filtrada por el diagnóstico. Puedes buscar por nombre o sinónimo.">
+            <HistologiaSearch value={data.histologia} error={errors.histologia}
+              grupo={CIE10_INDEX[data.cie10]?.subgrupo}
+              onSelect={v => update('histologia', v)} />
+          </Field>
+          <Field label="Descripción de la patología" required full error={errors.estudios_patologia}
+            naValue={data.estudios_patologia === NA} onToggleNA={() => toggleNA('estudios_patologia')}>
+            <div className="mb-2 max-w-[240px]">
+              <label className="block text-xs font-medium text-slate-500 mb-1">Fecha de la patología</label>
+              <Input type="date" value={data.fecha_patologia}
+                max={new Date().toISOString().split('T')[0]}
+                onChange={v => update('fecha_patologia', v)} error={errors.fecha_patologia} />
+            </div>
+            <TextArea value={data.estudios_patologia} onChange={v => update('estudios_patologia', v)}
+              placeholder="Ej. Biopsia: adenocarcinoma pulmonar moderadamente diferenciado"
+              error={errors.estudios_patologia} />
+          </Field>
+        </>
+      )}
+
+      {/* Inmunohistoquímica */}
+      <Field label="¿Se realizó inmunohistoquímica?" required error={errors.inmunohistoquimica_realizada}>
+        <Select value={data.inmunohistoquimica_realizada} onChange={v => update('inmunohistoquimica_realizada', v)}
+          options={SI_NO_OPTS} error={errors.inmunohistoquimica_realizada} />
+      </Field>
+      <div />
+      {conIHQ && (
+        <Field label="Descripción de inmunohistoquímica" required full error={errors.inmunohistoquimica}
+          naValue={data.inmunohistoquimica === NA} onToggleNA={() => toggleNA('inmunohistoquimica')}>
+          <TextArea value={data.inmunohistoquimica} onChange={v => update('inmunohistoquimica', v)}
+            placeholder="Ej. TTF-1+, Napsina A+, CK7+, p40−"
+            error={errors.inmunohistoquimica} />
+        </Field>
+      )}
+
       <Field label="Estadio clínico" required error={errors.estadio_clinico}
         naValue={data.estadio_clinico === NA} onToggleNA={() => toggleNA('estadio_clinico')}>
         <Select value={data.estadio_clinico} onChange={v => update('estadio_clinico', v)}
@@ -1491,13 +1565,25 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
       </Field>
       <BiomarcadoresEditor value={data.biomarcadores_list}
         onChange={v => update('biomarcadores_list', v)} />
+      <Field label="Estudios moleculares / NGS" required full error={errors.estudios_moleculares}
+        naValue={data.estudios_moleculares === NA} onToggleNA={() => toggleNA('estudios_moleculares')}>
+        <div className="mb-2 max-w-[240px]">
+          <label className="block text-xs font-medium text-slate-500 mb-1">Fecha del estudio molecular / NGS</label>
+          <Input type="date" value={data.fecha_moleculares}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={v => update('fecha_moleculares', v)} error={errors.fecha_moleculares} />
+        </div>
+        <TextArea value={data.estudios_moleculares} onChange={v => update('estudios_moleculares', v)}
+          placeholder="Ej. EGFR exón 19 deletion positivo, ALK negativo, ROS1 negativo, PD-L1 TPS 5%"
+          error={errors.estudios_moleculares} />
+      </Field>
     </Section>
   )
 }
 
-function StepAntecedentes({ data, update, errors, toggleNA }) {
+function StepCapacidad({ data, update, errors, toggleNA }) {
   return (
-    <Section title="Antecedentes y comorbilidades" description="Estado funcional, enfermedades concomitantes y hábitos" icon={HeartPulse}>
+    <Section title="Capacidad funcional" description="Estado funcional y físico actual del paciente" icon={Activity}>
       <Field label="ECOG Performance Status" required error={errors.ecog}>
         <Select value={data.ecog} onChange={v => update('ecog', v)}
           options={[
@@ -1508,7 +1594,27 @@ function StepAntecedentes({ data, update, errors, toggleNA }) {
             { value: '4', label: '4 — Postrado, no se autocuida' },
           ]} error={errors.ecog} />
       </Field>
-      <div />
+      <Field label="EVA — Escala visual analógica del dolor" required error={errors.eva}
+        hint="0 = sin dolor · 10 = máximo dolor imaginable">
+        <Select value={data.eva} onChange={v => update('eva', v)}
+          options={Array.from({ length: 11 }, (_, i) => ({
+            value: String(i),
+            label: `${i}${i === 0 ? ' — sin dolor' : i === 10 ? ' — máximo dolor' : ''}`,
+          }))} error={errors.eva} />
+      </Field>
+      <Field label="Estado físico actual — datos relevantes" required full error={errors.estado_fisico}
+        naValue={data.estado_fisico === NA} onToggleNA={() => toggleNA('estado_fisico')}>
+        <TextArea value={data.estado_fisico} onChange={v => update('estado_fisico', v)}
+          placeholder="Ej. Peso 62 kg, IMC 22. Buen estado general, deambula sin apoyo. Dolor óseo lumbar controlado con analgesia."
+          error={errors.estado_fisico} />
+      </Field>
+    </Section>
+  )
+}
+
+function StepAntecedentes({ data, update, errors, toggleNA }) {
+  return (
+    <Section title="Antecedentes y comorbilidades" description="Enfermedades concomitantes, hábitos y medicación" icon={HeartPulse}>
       <Field label="Comorbilidades" required full error={errors.comorbilidades}
         naValue={data.comorbilidades === NA} onToggleNA={() => toggleNA('comorbilidades')}>
         <TextArea value={data.comorbilidades} onChange={v => update('comorbilidades', v)}
@@ -1549,7 +1655,7 @@ function StepAntecedentes({ data, update, errors, toggleNA }) {
 
 function StepEstudios({ data, update, errors, toggleNA }) {
   return (
-    <Section title="Estudios e imágenes realizadas" description="Hallazgos relevantes con fechas y resultados" icon={FlaskConical}>
+    <Section title="Estudios paraclínicos" description="Imágenes y laboratorio (los estudios diagnósticos van en Diagnóstico)" icon={FlaskConical}>
       <ImagenesEditor value={data.imagenes_list}
         onChange={v => update('imagenes_list', v)} />
       <Field label="Laboratorio relevante" required full error={errors.estudios_laboratorio}
@@ -1557,30 +1663,6 @@ function StepEstudios({ data, update, errors, toggleNA }) {
         <TextArea value={data.estudios_laboratorio} onChange={v => update('estudios_laboratorio', v)}
           placeholder="Ej. Hb 12.4, Leu 6800, Plaq 220k, Cr 0.9, BT 0.7..."
           error={errors.estudios_laboratorio} />
-      </Field>
-      <Field label="Patología" required full error={errors.estudios_patologia}
-        naValue={data.estudios_patologia === NA} onToggleNA={() => toggleNA('estudios_patologia')}>
-        <div className="mb-2 max-w-[240px]">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Fecha de la patología</label>
-          <Input type="date" value={data.fecha_patologia}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={v => update('fecha_patologia', v)} error={errors.fecha_patologia} />
-        </div>
-        <TextArea value={data.estudios_patologia} onChange={v => update('estudios_patologia', v)}
-          placeholder="Ej. Biopsia: adenocarcinoma pulmonar. IHQ: TTF-1+, Napsina A+"
-          error={errors.estudios_patologia} />
-      </Field>
-      <Field label="Estudios moleculares / NGS" required full error={errors.estudios_moleculares}
-        naValue={data.estudios_moleculares === NA} onToggleNA={() => toggleNA('estudios_moleculares')}>
-        <div className="mb-2 max-w-[240px]">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Fecha del estudio molecular / NGS</label>
-          <Input type="date" value={data.fecha_moleculares}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={v => update('fecha_moleculares', v)} error={errors.fecha_moleculares} />
-        </div>
-        <TextArea value={data.estudios_moleculares} onChange={v => update('estudios_moleculares', v)}
-          placeholder="Ej. EGFR exón 19 deletion positivo, ALK negativo, ROS1 negativo, PD-L1 TPS 5%"
-          error={errors.estudios_moleculares} />
       </Field>
     </Section>
   )

@@ -98,3 +98,23 @@ select option { background: var(--tinta-2); color: var(--hueso); }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================
+   Impresión — el acta ocupa toda la hoja, sin cromo de la app.
+   ============================================================ */
+@media print {
+  @page { margin: 14mm; }
+  html, body { background: #ffffff !important; }
+  /* Cualquier elemento marcado como no imprimible desaparece */
+  .no-print, [data-print="hide"] { display: none !important; }
+  /* El contenedor del documento a imprimir gobierna su propio ancho */
+  .print-doc {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .print-avoid-break { break-inside: avoid; page-break-inside: avoid; }
+}
