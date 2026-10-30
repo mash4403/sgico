@@ -17,7 +17,7 @@ const ROL_OPTS = [
   { value: 'invitado',      label: 'Invitado' },
   { value: 'otro',          label: 'Otro' },
 ]
-export const ROL_LABEL = Object.fromEntries(ROL_OPTS.map(o => [o.value, o.label]))
+const ROL_LABEL =Object.fromEntries(ROL_OPTS.map(o => [o.value, o.label]))
 
 const inputBase = 'w-full px-3 py-2 border-2 border-slate-300 bg-white rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
 
