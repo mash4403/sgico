@@ -258,13 +258,15 @@ export default function CasoDetalle() {
         <KV label="Código CIE-10"          value={caso.cie10 || caso.protocolo?.cie10} />
         <KV label="Fecha diagnóstico"      value={formatDate(caso.fecha_diagnostico)} />
         <KV label="Descripción"            value={caso.diagnostico_descripcion} full />
-        <KV label="Patología"              value={caso.patologia_realizada == null ? null : (caso.patologia_realizada ? 'Sí' : 'No')} />
+        <KV label="Patología"              value={caso.patologia_realizada == null ? (caso.patologia_observaciones ? 'Sin dato' : null) : (caso.patologia_realizada ? 'Sí' : 'No')} />
+        {caso.patologia_observaciones ? <KV label="Observaciones patología" value={caso.patologia_observaciones} full /> : null}
         {caso.patologia_realizada !== false ? <KV label="Fecha patología" value={formatDate(caso.fecha_patologia)} /> : null}
         {caso.patologia_realizada !== false ? <KV label="Histología" value={caso.histologia} full /> : null}
         {caso.patologia_realizada !== false ? <KV label="Descripción patología" value={caso.estudios_patologia} full /> : null}
         <KV label="Inmunohistoquímica"     value={caso.inmunohistoquimica_realizada == null ? null : (caso.inmunohistoquimica_realizada ? 'Sí' : 'No')} />
         {caso.inmunohistoquimica_realizada !== false && caso.inmunohistoquimica ? <KV label="Descripción IHQ" value={caso.inmunohistoquimica} full /> : null}
-        <KV label="Estadio clínico"        value={caso.estadio_clinico ? `Estadio ${caso.estadio_clinico}` : null} />
+        <KV label="Estadio clínico"        value={caso.estadio_clinico ? (caso.estadio_clinico.startsWith('Sin') ? caso.estadio_clinico : `Estadio ${caso.estadio_clinico}`) : null} />
+        {caso.estadio_observaciones ? <KV label="Observaciones estadio" value={caso.estadio_observaciones} full /> : null}
         <KV label="TNM"                    value={caso.tnm} />
         <KV label="Biomarcadores"          value={caso.biomarcadores} full />
         <KV label="Estudios moleculares / NGS" value={caso.estudios_moleculares} full />
@@ -568,8 +570,8 @@ function Section({ title, icon: Icon, children, highlight = false }) {
 function KV({ label, value, full = false }) {
   const display = (value === null || value === undefined || value === '')
     ? <span className="text-slate-400 italic">No registrado</span>
-    : value === 'No aplica'
-      ? <span className="text-slate-600 italic">No aplica</span>
+    : (value === 'No aplica' || value === 'Antecedente negativo')
+      ? <span className="text-slate-600 italic">{value}</span>
       : <span className="text-slate-900 whitespace-pre-line">{value}</span>
   return (
     <div className={full ? 'md:col-span-2' : ''}>

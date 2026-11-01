@@ -16,11 +16,13 @@ export const formatCOP = (value) => {
 //   - String ISO timestamp: '2026-05-18T10:30:00Z' → '18/05/2026' (en hora Bogotá)
 //   - Objeto Date
 //   - null/undefined/'' → '—'
+//   - '1800-01-01' (comodín CAC de fecha desconocida) → 'Sin dato'
 //
 // Para DATE puro no hace conversión de zona horaria (la fecha es la fecha).
 // Para timestamps usa la zona America/Bogota para mostrar la fecha "como la vivió" el usuario.
 export const formatDate = (value) => {
   if (!value) return '—'
+  if (value === '1800-01-01') return 'Sin dato'
 
   // Caso 1: string DATE puro 'YYYY-MM-DD' — split manual, sin zona horaria
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {

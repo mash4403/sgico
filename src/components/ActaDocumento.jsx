@@ -122,8 +122,9 @@ export default function ActaDocumento({ caso, form, acta }) {
         <Seccion n="04" titulo="Estadificación">
           <Campos cols={3} items={[
             ['TNM', caso?.tnm],
-            ['Estadio', caso?.estadio_clinico ? `Estadio ${caso.estadio_clinico}` : null],
+            ['Estadio', caso?.estadio_clinico ? (caso.estadio_clinico.startsWith('Sin') ? caso.estadio_clinico : `Estadio ${caso.estadio_clinico}`) : null],
             ['Inmunohistoquímica', caso?.inmunohistoquimica],
+            ...(caso?.estadio_observaciones ? [['Observaciones', caso.estadio_observaciones]] : []),
           ]} />
         </Seccion>
 

@@ -35,6 +35,28 @@ const STEPS = [
 
 const DRAFT_KEY = 'sgico_presentacion_draft'
 const NA = '__NA__'
+// Comodín de la CAC para una fecha que existe pero no se conoce.
+const FECHA_DESCONOCIDA_CAC = '1800-01-01'
+const SIN_ESTADIO = 'Sin estadificación'
+const ANTECEDENTE_NEGATIVO = 'Antecedente negativo'
+
+// Definiciones acordadas con el cliente para la prioridad del caso.
+const PRIORIDAD_OPTS = [
+  { value: 'normal',  label: 'Normal',  def: 'Puede presentarse en un comité dentro de los próximos 8 días hábiles.' },
+  { value: 'urgente', label: 'Urgente', def: 'Debe presentarse en el próximo comité, sin importar cuánto falte para él.' },
+  { value: 'critica', label: 'Crítica', def: 'Amerita un comité extraordinario por su condición clínica o administrativa.' },
+]
+
+// Borradores y casos agendados antes de los ajustes de la reunión con el
+// cliente pueden traer valores que el formulario ya no admite.
+const normalizarBorrador = (bd) => {
+  if (!bd) return bd
+  if (bd.ecog === NA) bd.ecog = ''
+  if (bd.patologia_realizada === 'no') bd.patologia_realizada = ''
+  if (bd.estudios_patologia === NA) bd.estudios_patologia = ''
+  if (bd.estudios_laboratorio === NA) bd.estudios_laboratorio = ''
+  return bd
+}
 
 // Contexto terapéutico (enum clínico). Neo/adyuvancia NO son líneas metastásicas.
 const CONTEXTO_OPTS = [
@@ -221,9 +243,9 @@ const initialState = {
   // 3. Diagnóstico (incluye patología, IHQ y molecular/NGS)
   cie10: '', diagnostico_descripcion: '',
   patologia_realizada: '', histologia: '',
-  estudios_patologia: '', fecha_patologia: '',
+  estudios_patologia: '', fecha_patologia: '', patologia_observaciones: '',
   inmunohistoquimica_realizada: '', inmunohistoquimica: '',
-  estadio_clinico: '', tnm_t: '', tnm_n: '', tnm_m: '',
+  estadio_clinico: '', estadio_observaciones: '', tnm_t: '', tnm_n: '', tnm_m: '',
   fecha_diagnostico: '', biomarcadores: '', biomarcadores_list: [],
   estudios_moleculares: '', fecha_moleculares: '',
 
@@ -307,8 +329,7 @@ export default function PresentacionComite() {
         const { data: caso, error } = await supabase
           .from('casos_comite').select('borrador_data').eq('id', editIdParam).single()
         if (!error && caso?.borrador_data) {
-          const bd = caso.borrador_data
-          if (bd?.ecog === NA) bd.ecog = ''
+          const bd = normalizarBorrador(caso.borrador_data)
           setData(prev => ({ ...prev, ...bd }))
           toast.success('Caso agendado cargado', { icon: '📂' })
         }
@@ -319,8 +340,7 @@ export default function PresentacionComite() {
     if (draft) {
       try {
         const parsed = JSON.parse(draft)
-        // Borradores antiguos pueden traer ecog='__NA__'; el campo ya no admite NA
-        if (parsed.data?.ecog === NA) parsed.data.ecog = ''
+        normalizarBorrador(parsed.data)
         setData(prev => ({ ...prev, ...parsed.data }))
         setStep(parsed.step || 0)
         toast.success('Borrador recuperado', { icon: '📝' })
@@ -426,16 +446,23 @@ export default function PresentacionComite() {
         noFuture('fecha_nacimiento')
         break
       case 2:
-        ;['cie10','diagnostico_descripcion','estadio_clinico',
-          'tnm_t','tnm_n','tnm_m','fecha_diagnostico']
+        ;['cie10','diagnostico_descripcion','estadio_clinico','fecha_diagnostico']
           .forEach(f => req(f))
         noFuture('fecha_diagnostico')
-        // Patología (sí/no). Si sí, histología y descripción son requeridas.
+        // Sin estadificación: observación obligatoria y TNM opcional
+        if (data.estadio_clinico === NA) {
+          req('estadio_observaciones')
+        } else {
+          ;['tnm_t','tnm_n','tnm_m'].forEach(f => req(f))
+        }
+        // Patología (sí / sin dato). Todo paciente con CA tiene patología:
+        // si no se conoce el dato, la observación es obligatoria.
         req('patologia_realizada')
         if (data.patologia_realizada === 'si') {
-          req('histologia'); req('estudios_patologia')
+          req('histologia'); req('estudios_patologia', { allowNA: false })
           noFuture('fecha_patologia')
         }
+        if (data.patologia_realizada === 'sin_dato') req('patologia_observaciones')
         // Inmunohistoquímica (sí/no). Si sí, descripción requerida.
         req('inmunohistoquimica_realizada')
         if (data.inmunohistoquimica_realizada === 'si') req('inmunohistoquimica')
@@ -455,7 +482,7 @@ export default function PresentacionComite() {
         break
       case 5:
         // Estudios (paraclínicos): solo laboratorio requerido; imágenes opcionales.
-        req('estudios_laboratorio')
+        req('estudios_laboratorio', { allowNA: false })
         break
       case 6:
         // Contexto terapéutico y tratamiento actual son requeridos
@@ -682,16 +709,21 @@ export default function PresentacionComite() {
         // Clínicos detallados
         diagnostico_descripcion: clean(data.diagnostico_descripcion),
         // Patología (sí/no). Histología y descripción solo si hubo patología.
+        // Patología (sí / sin dato). 'no' solo existe en casos anteriores.
         patologia_realizada: data.patologia_realizada === 'si' ? true
                            : data.patologia_realizada === 'no' ? false : null,
+        patologia_observaciones: data.patologia_realizada === 'sin_dato'
+          ? clean(data.patologia_observaciones) : null,
         histologia: data.patologia_realizada === 'si' ? clean(data.histologia) : null,
         // Inmunohistoquímica (sí/no) + descripción
         inmunohistoquimica_realizada: data.inmunohistoquimica_realizada === 'si' ? true
                                     : data.inmunohistoquimica_realizada === 'no' ? false : null,
         inmunohistoquimica: data.inmunohistoquimica_realizada === 'si' ? clean(data.inmunohistoquimica) : null,
-        estadio_clinico: clean(data.estadio_clinico),
+        estadio_clinico: data.estadio_clinico === NA ? SIN_ESTADIO : clean(data.estadio_clinico),
+        estadio_observaciones: data.estadio_clinico === NA ? clean(data.estadio_observaciones) : null,
         tnm: armarTNM(data),
-        fecha_diagnostico: cleanDate(data.fecha_diagnostico),
+        fecha_diagnostico: data.fecha_diagnostico === NA
+          ? FECHA_DESCONOCIDA_CAC : cleanDate(data.fecha_diagnostico),
         // texto = resumen derivado del arreglo (compat con Detalle/Mesa); jsonb = estructurado
         biomarcadores: resumenBiomarcadores(data.biomarcadores_list) || clean(data.biomarcadores),
         biomarcadores_estructurados: (data.biomarcadores_list?.length ? data.biomarcadores_list : null),
@@ -700,11 +732,11 @@ export default function PresentacionComite() {
         ecog: clean(data.ecog),
         eva: (data.eva === '' || data.eva === NA) ? null : Number(data.eva),
         estado_fisico: clean(data.estado_fisico),
-        comorbilidades: clean(data.comorbilidades),
-        alergias: clean(data.alergias),
-        habito_tabaquico: clean(data.habito_tabaquico),
-        habito_alcohol: clean(data.habito_alcohol),
-        medicacion_actual: clean(data.medicacion_actual),
+        comorbilidades: cleanAntecedente(data.comorbilidades),
+        alergias: cleanAntecedente(data.alergias),
+        habito_tabaquico: cleanAntecedente(data.habito_tabaquico),
+        habito_alcohol: cleanAntecedente(data.habito_alcohol),
+        medicacion_actual: cleanAntecedente(data.medicacion_actual),
 
         estudios_imagenes: resumenImagenes(data.imagenes_list) || clean(data.estudios_imagenes),
         imagenes_estructuradas: (data.imagenes_list?.length ? data.imagenes_list : null),
@@ -1021,6 +1053,8 @@ const fmtCOP = (n) => n == null ? '—' : '$ ' + Number(n).toLocaleString('es-CO
 
 const clean = (v) => (v === NA ? 'No aplica' : (v?.toString().trim() || null))
 const cleanDate = (v) => (v === NA || !v ? null : v)
+// En antecedentes, la marca registra que se indagó y fue negativo
+const cleanAntecedente = (v) => (v === NA ? ANTECEDENTE_NEGATIVO : clean(v))
 // TNM genérico (AJCC). Categorías transversales; el afinamiento por tumor es posterior.
 const T_OPTS = ['Tis', 'T0', 'T1', 'T1a', 'T1b', 'T1c', 'T2', 'T2a', 'T2b', 'T3', 'T4', 'T4a', 'T4b', 'Tx'].map(v => ({ value: v, label: v }))
 const N_OPTS = ['N0', 'N1', 'N1a', 'N1b', 'N1c', 'N2', 'N2a', 'N2b', 'N3', 'N3a', 'N3b', 'Nx'].map(v => ({ value: v, label: v }))
@@ -1056,7 +1090,7 @@ function Section({ title, description, icon: Icon, children }) {
   )
 }
 
-function Field({ label, required, error, naValue, onToggleNA, children, full, hint }) {
+function Field({ label, required, error, naValue, onToggleNA, naLabel = 'No aplica', children, full, hint }) {
   return (
     <div className={full ? 'md:col-span-2' : ''}>
       <div className="flex items-center justify-between mb-1.5">
@@ -1069,7 +1103,7 @@ function Field({ label, required, error, naValue, onToggleNA, children, full, hi
               naValue ? 'bg-amber-200 text-amber-900 ring-1 ring-amber-400'
                       : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
             }`}>
-            {naValue ? '✓ No aplica' : 'No aplica'}
+            {naValue ? `✓ ${naLabel}` : naLabel}
           </button>
         )}
       </div>
@@ -1407,13 +1441,10 @@ function StepAdmin({ data, update, errors, sedes, eps, medicos, gestores }) {
             { value: 'multidisciplinario', label: 'Multidisciplinario' },
           ]} error={errors.tipo_comite} />
       </Field>
-      <Field label="Prioridad" required>
+      <Field label="Prioridad" required
+        hint={PRIORIDAD_OPTS.find(o => o.value === data.prioridad)?.def}>
         <Select value={data.prioridad} onChange={v => update('prioridad', v)}
-          options={[
-            { value: 'normal',  label: 'Normal' },
-            { value: 'urgente', label: 'Urgente' },
-            { value: 'critica', label: 'Crítica' },
-          ]} />
+          options={PRIORIDAD_OPTS} />
       </Field>
       <Field label="Fecha de solicitud" required error={errors.fecha_solicitud}>
         <Input type="date" value={data.fecha_solicitud}
@@ -1467,9 +1498,12 @@ function StepDemograficos({ data, update, errors }) {
 }
 
 const SI_NO_OPTS = [{ value: 'si', label: 'Sí' }, { value: 'no', label: 'No' }]
+// Todo paciente con CA tiene patología: no existe "No", solo "Sin dato"
+const PATOLOGIA_OPTS = [{ value: 'si', label: 'Sí' }, { value: 'sin_dato', label: 'Sin dato' }]
 
 function StepDiagnostico({ data, update, errors, toggleNA }) {
   const conPatologia = data.patologia_realizada === 'si'
+  const sinEstadio = data.estadio_clinico === NA
   const conIHQ = data.inmunohistoquimica_realizada === 'si'
   return (
     <Section title="Diagnóstico oncológico" description="CIE-10, patología, inmunohistoquímica, TNM y molecular" icon={Stethoscope}>
@@ -1482,7 +1516,9 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
           }} />
       </Field>
       <Field label="Fecha del diagnóstico" required error={errors.fecha_diagnostico}
-        naValue={data.fecha_diagnostico === NA} onToggleNA={() => toggleNA('fecha_diagnostico')}>
+        naLabel="Sin dato" naValue={data.fecha_diagnostico === NA} onToggleNA={() => toggleNA('fecha_diagnostico')}
+        hint={data.fecha_diagnostico === NA
+          ? 'Fecha desconocida: se registra con el comodín de la CAC (1800-01-01).' : undefined}>
         <Input type="date" value={data.fecha_diagnostico}
           max={new Date().toISOString().split('T')[0]}
           onChange={v => update('fecha_diagnostico', v)} error={errors.fecha_diagnostico} />
@@ -1500,9 +1536,17 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
       {/* Patología */}
       <Field label="¿Se realizó patología?" required error={errors.patologia_realizada}>
         <Select value={data.patologia_realizada} onChange={v => update('patologia_realizada', v)}
-          options={SI_NO_OPTS} error={errors.patologia_realizada} />
+          options={PATOLOGIA_OPTS} error={errors.patologia_realizada} />
       </Field>
       <div />
+      {data.patologia_realizada === 'sin_dato' && (
+        <Field label="Observaciones — ¿por qué no hay dato de patología?" required full
+          error={errors.patologia_observaciones}>
+          <TextArea value={data.patologia_observaciones} onChange={v => update('patologia_observaciones', v)}
+            placeholder="Ej. Biopsia tomada en otra institución, reporte pendiente de llegar"
+            rows={2} error={errors.patologia_observaciones} />
+        </Field>
+      )}
       {conPatologia && (
         <>
           <Field label="Histología" required full error={errors.histologia}
@@ -1511,8 +1555,7 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
               grupo={CIE10_INDEX[data.cie10]?.subgrupo}
               onSelect={v => update('histologia', v)} />
           </Field>
-          <Field label="Descripción de la patología" required full error={errors.estudios_patologia}
-            naValue={data.estudios_patologia === NA} onToggleNA={() => toggleNA('estudios_patologia')}>
+          <Field label="Descripción de la patología" required full error={errors.estudios_patologia}>
             <div className="mb-2 max-w-[240px]">
               <label className="block text-xs font-medium text-slate-500 mb-1">Fecha de la patología</label>
               <Input type="date" value={data.fecha_patologia}
@@ -1542,7 +1585,7 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
       )}
 
       <Field label="Estadio clínico" required error={errors.estadio_clinico}
-        naValue={data.estadio_clinico === NA} onToggleNA={() => toggleNA('estadio_clinico')}>
+        naLabel={SIN_ESTADIO} naValue={sinEstadio} onToggleNA={() => toggleNA('estadio_clinico')}>
         <Select value={data.estadio_clinico} onChange={v => update('estadio_clinico', v)}
           options={[
             { value: '0', label: 'Estadio 0' },
@@ -1554,13 +1597,21 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
           ]} error={errors.estadio_clinico} />
       </Field>
       <div />
-      <Field label="T (Tumor)" required error={errors.tnm_t}>
+      {sinEstadio && (
+        <Field label="Observaciones — ¿por qué se presenta sin estadificación?" required full
+          error={errors.estadio_observaciones}>
+          <TextArea value={data.estadio_observaciones} onChange={v => update('estadio_observaciones', v)}
+            placeholder="Ej. Estudios de extensión en curso; se presenta para definir conducta inicial"
+            rows={2} error={errors.estadio_observaciones} />
+        </Field>
+      )}
+      <Field label="T (Tumor)" required={!sinEstadio} error={errors.tnm_t}>
         <Select value={data.tnm_t} onChange={v => update('tnm_t', v)} options={T_OPTS} error={errors.tnm_t} />
       </Field>
-      <Field label="N (Nodos)" required error={errors.tnm_n}>
+      <Field label="N (Nodos)" required={!sinEstadio} error={errors.tnm_n}>
         <Select value={data.tnm_n} onChange={v => update('tnm_n', v)} options={N_OPTS} error={errors.tnm_n} />
       </Field>
-      <Field label="M (Metástasis)" required error={errors.tnm_m}>
+      <Field label="M (Metástasis)" required={!sinEstadio} error={errors.tnm_m}>
         <Select value={data.tnm_m} onChange={v => update('tnm_m', v)} options={M_OPTS} error={errors.tnm_m} />
       </Field>
       <BiomarcadoresEditor value={data.biomarcadores_list}
@@ -1616,17 +1667,17 @@ function StepAntecedentes({ data, update, errors, toggleNA }) {
   return (
     <Section title="Antecedentes y comorbilidades" description="Enfermedades concomitantes, hábitos y medicación" icon={HeartPulse}>
       <Field label="Comorbilidades" required full error={errors.comorbilidades}
-        naValue={data.comorbilidades === NA} onToggleNA={() => toggleNA('comorbilidades')}>
+        naLabel={ANTECEDENTE_NEGATIVO} naValue={data.comorbilidades === NA} onToggleNA={() => toggleNA('comorbilidades')}>
         <TextArea value={data.comorbilidades} onChange={v => update('comorbilidades', v)}
           placeholder="Ej. HTA, DM2 controlada, hipotiroidismo en sustitución" error={errors.comorbilidades} />
       </Field>
       <Field label="Alergias" required full error={errors.alergias}
-        naValue={data.alergias === NA} onToggleNA={() => toggleNA('alergias')}>
+        naLabel={ANTECEDENTE_NEGATIVO} naValue={data.alergias === NA} onToggleNA={() => toggleNA('alergias')}>
         <TextArea value={data.alergias} onChange={v => update('alergias', v)}
           placeholder="Ej. Penicilina (rash), AINES (broncoespasmo)" rows={2} error={errors.alergias} />
       </Field>
       <Field label="Hábito tabáquico" required error={errors.habito_tabaquico}
-        naValue={data.habito_tabaquico === NA} onToggleNA={() => toggleNA('habito_tabaquico')}>
+        naLabel={ANTECEDENTE_NEGATIVO} naValue={data.habito_tabaquico === NA} onToggleNA={() => toggleNA('habito_tabaquico')}>
         <Select value={data.habito_tabaquico} onChange={v => update('habito_tabaquico', v)}
           options={[
             { value: 'nunca',     label: 'Nunca fumó' },
@@ -1635,7 +1686,7 @@ function StepAntecedentes({ data, update, errors, toggleNA }) {
           ]} error={errors.habito_tabaquico} />
       </Field>
       <Field label="Hábito alcohólico" required error={errors.habito_alcohol}
-        naValue={data.habito_alcohol === NA} onToggleNA={() => toggleNA('habito_alcohol')}>
+        naLabel={ANTECEDENTE_NEGATIVO} naValue={data.habito_alcohol === NA} onToggleNA={() => toggleNA('habito_alcohol')}>
         <Select value={data.habito_alcohol} onChange={v => update('habito_alcohol', v)}
           options={[
             { value: 'nunca',     label: 'No consume' },
@@ -1645,7 +1696,7 @@ function StepAntecedentes({ data, update, errors, toggleNA }) {
           ]} error={errors.habito_alcohol} />
       </Field>
       <Field label="Medicación actual" required full error={errors.medicacion_actual}
-        naValue={data.medicacion_actual === NA} onToggleNA={() => toggleNA('medicacion_actual')}>
+        naLabel={ANTECEDENTE_NEGATIVO} naValue={data.medicacion_actual === NA} onToggleNA={() => toggleNA('medicacion_actual')}>
         <TextArea value={data.medicacion_actual} onChange={v => update('medicacion_actual', v)}
           placeholder="Ej. Losartán 50 mg/día, metformina 850 mg c/12h" error={errors.medicacion_actual} />
       </Field>
@@ -1658,8 +1709,7 @@ function StepEstudios({ data, update, errors, toggleNA }) {
     <Section title="Estudios paraclínicos" description="Imágenes y laboratorio (los estudios diagnósticos van en Diagnóstico)" icon={FlaskConical}>
       <ImagenesEditor value={data.imagenes_list}
         onChange={v => update('imagenes_list', v)} />
-      <Field label="Laboratorio relevante" required full error={errors.estudios_laboratorio}
-        naValue={data.estudios_laboratorio === NA} onToggleNA={() => toggleNA('estudios_laboratorio')}>
+      <Field label="Laboratorio relevante" required full error={errors.estudios_laboratorio}>
         <TextArea value={data.estudios_laboratorio} onChange={v => update('estudios_laboratorio', v)}
           placeholder="Ej. Hb 12.4, Leu 6800, Plaq 220k, Cr 0.9, BT 0.7..."
           error={errors.estudios_laboratorio} />

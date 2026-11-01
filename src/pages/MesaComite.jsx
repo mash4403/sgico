@@ -601,14 +601,15 @@ function generarResumenClinico(caso) {
     paciente,
     `DIAGNÓSTICO: ${diag || 'No registrado'}`,
     `ESTADIO: ${resumenVal(caso.estadio_clinico)} (TNM: ${resumenVal(caso.tnm)})`,
-    `HISTOLOGÍA: ${resumenVal(caso.histologia)}`,
+    ...(caso.estadio_observaciones ? [`OBSERVACIÓN ESTADIO: ${caso.estadio_observaciones}`] : []),
+    `HISTOLOGÍA: ${caso.histologia || (caso.patologia_observaciones ? `Sin dato (${caso.patologia_observaciones})` : 'No registrado')}`,
     `BIOMARCADORES: ${resumenVal(caso.biomarcadores)}`,
     `MOLECULAR/NGS: ${resumenVal(caso.estudios_moleculares)}`,
   ].join('\n')
 
   // CAPACIDAD FUNCIONAL / COMORBILIDADES / HÁBITOS
-  const tabaco = TABACO_RESUMEN[caso.habito_tabaquico] || 'No registrado'
-  const alcohol = ALCOHOL_RESUMEN[caso.habito_alcohol] || 'No registrado'
+  const tabaco = TABACO_RESUMEN[caso.habito_tabaquico] || caso.habito_tabaquico || 'No registrado'
+  const alcohol = ALCOHOL_RESUMEN[caso.habito_alcohol] || caso.habito_alcohol || 'No registrado'
   const evaTxt = caso.eva != null ? `${caso.eva}/10` : 'No registrado'
   const bloque2 = [
     `ECOG: ${resumenVal(caso.ecog)} · EVA: ${evaTxt}`,
