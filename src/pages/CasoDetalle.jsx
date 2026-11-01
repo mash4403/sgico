@@ -12,6 +12,7 @@ import {
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
   Pill, BookOpen, MessageSquareQuote, DollarSign, Paperclip,
   CheckCircle2, XCircle, AlertCircle, Loader2, ShieldCheck, ClipboardCopy, Activity,
+  CalendarPlus, X,
 } from 'lucide-react'
 
 const DECISION_LABELS = {
@@ -66,6 +67,14 @@ export default function CasoDetalle() {
   const [loading, setLoading] = useState(true)
   const [showHistorial, setShowHistorial] = useState(false)
 
+  // Agregar a comité (mientras el acta no esté firmada)
+  const [showAgendar, setShowAgendar] = useState(false)
+  const [sesiones, setSesiones] = useState([])
+  const [sesionSel, setSesionSel] = useState('nueva')
+  const [nuevaFecha, setNuevaFecha] = useState('')
+  const [nuevoTipo, setNuevoTipo] = useState('tumor_solido')
+  const [agendando, setAgendando] = useState(false)
+
   useEffect(() => { cargarCaso() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargarCaso() {
@@ -79,7 +88,8 @@ export default function CasoDetalle() {
           sede:sedes(id, nombre),
           medico:medicos(id, nombre, especialidad),
           gestor:gestores(id, nombre),
-          protocolo:protocolos(id, nombre, estudio_pivotal, pfs_esperado_meses, os_esperado_meses)
+          protocolo:protocolos(id, nombre, estudio_pivotal, pfs_esperado_meses, os_esperado_meses),
+          sesion:sesiones_comite(id, fecha, tipo_comite)
         `)
         .eq('id', id)
         .single()
@@ -138,6 +148,51 @@ export default function CasoDetalle() {
     }
   }
 
+  async function abrirAgendar() {
+    const hoy = new Date().toISOString().slice(0, 10)
+    const { data: ses } = await supabase
+      .from('sesiones_comite').select('*').gte('fecha', hoy).order('fecha')
+    setSesiones(ses || [])
+    const actual = ses?.find(x => x.id === caso.sesion_id)
+    setSesionSel(actual ? String(actual.id) : ses?.length ? String(ses[0].id) : 'nueva')
+    setNuevoTipo(caso.tipo_comite || 'tumor_solido')
+    setShowAgendar(true)
+  }
+
+  // Deja el caso AGENDADO (presentado=false) en la sesión elegida; al firmar
+  // el acta vuelve a quedar presentado.
+  async function confirmarAgendar() {
+    setAgendando(true)
+    try {
+      let sesionId
+      if (sesionSel === 'nueva') {
+        if (!nuevaFecha) { toast.error('Elige la fecha del comité'); setAgendando(false); return }
+        const { data: nueva, error } = await supabase
+          .from('sesiones_comite')
+          .insert({ fecha: nuevaFecha, tipo_comite: nuevoTipo })
+          .select('id').single()
+        if (error) throw error
+        sesionId = nueva.id
+      } else {
+        sesionId = Number(sesionSel)
+      }
+      const { data: upd, error } = await supabase
+        .from('casos_comite')
+        .update({ sesion_id: sesionId, presentado: false })
+        .eq('id', caso.id)
+        .select('id')
+      if (error) throw error
+      if (!upd?.length) throw new Error('el caso no se actualizó')
+      setShowAgendar(false)
+      toast.success('Caso agregado al comité', { icon: '📅' })
+      navigate('/agenda')
+    } catch (e) {
+      toast.error(`Error al agregar a comité: ${e.message}`)
+    } finally {
+      setAgendando(false)
+    }
+  }
+
   const descargarAdjunto = async (path, nombre) => {
   try {
     const { data, error } = await supabase.storage
@@ -163,6 +218,7 @@ export default function CasoDetalle() {
   const DecisionIcon = decision.icon
   const prioridad = PRIORIDAD_LABELS[caso.prioridad] || PRIORIDAD_LABELS.normal
   const puedeAbrirComite = caso.decision === 'pendiente' || caso.decision === 'pendiente_info'
+  const actaFirmada = acta?.firmada === true
   const telefono = caso.paciente?.telefono1 || caso.paciente?.telefono2
 
   // Datos del paciente actual: tratamiento_qt en BD = quimioterapia + líneas previas en el form nuevo
@@ -186,7 +242,14 @@ export default function CasoDetalle() {
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
             <Printer className="w-4 h-4" /> Imprimir / PDF
           </button>
-          {acta && (
+          {!actaFirmada && (
+            <button onClick={abrirAgendar}
+              title={caso.sesion_id ? 'Cambiar la sesión de comité' : 'Agendar el caso en una sesión de comité'}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
+              <CalendarPlus className="w-4 h-4" /> {caso.sesion_id ? 'Cambiar sesión de comité' : 'Agregar a comité'}
+            </button>
+          )}
+          {actaFirmada && (
             <button onClick={copiarAHistoriaClinica}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
               <ClipboardCopy className="w-4 h-4" /> Copiar a historia clínica
@@ -231,6 +294,11 @@ export default function CasoDetalle() {
             <div className="text-xs uppercase tracking-wide font-semibold">Caso</div>
             <div className="font-bold text-slate-900 text-lg">#{caso.id}</div>
             <div className="mt-1">Solicitado: <strong className="text-slate-800">{formatDate(caso.fecha_solicitud)}</strong></div>
+            <div className="mt-1">
+              Comité: <strong className="text-slate-800">
+                {caso.sesion?.fecha ? formatDate(caso.sesion.fecha) : 'Sin agendar'}
+              </strong>
+            </div>
           </div>
         </div>
       </div>
@@ -426,6 +494,67 @@ export default function CasoDetalle() {
           .print\\:break-inside-avoid { break-inside: avoid; }
         }
       `}</style>
+
+      {/* Modal: Agregar a comité */}
+      {showAgendar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 print:hidden"
+             onClick={() => !agendando && setShowAgendar(false)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-300 w-full max-w-md p-6"
+               onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-900">Agregar a comité</h3>
+              <button onClick={() => setShowAgendar(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <label className="block text-sm font-semibold text-slate-800 mb-1.5">Sesión de comité</label>
+            <select value={sesionSel} onChange={e => setSesionSel(e.target.value)}
+              className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg text-sm text-slate-900 mb-3">
+              {sesiones.map(s => (
+                <option key={s.id} value={String(s.id)}>
+                  {new Date(s.fecha).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })}
+                  {' · '}{TIPO_COMITE_LABELS[s.tipo_comite] || s.tipo_comite}
+                </option>
+              ))}
+              <option value="nueva">➕ Crear nueva sesión…</option>
+            </select>
+
+            {sesionSel === 'nueva' && (
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Fecha del comité</label>
+                  <input type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)}
+                    min={new Date().toISOString().slice(0, 10)}
+                    className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg text-sm text-slate-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tipo</label>
+                  <select value={nuevoTipo} onChange={e => setNuevoTipo(e.target.value)}
+                    className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg text-sm text-slate-900">
+                    {Object.entries(TIPO_COMITE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-slate-500 mb-4">
+              El caso pasa a «Casos para comité» en la sesión elegida. Al firmar el acta vuelve al listado de casos.
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowAgendar(false)} disabled={agendando}
+                className="px-4 py-2 rounded-lg bg-white border border-slate-400 text-slate-700 hover:bg-slate-50 text-sm">
+                Cancelar
+              </button>
+              <button onClick={confirmarAgendar} disabled={agendando}
+                className="px-5 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
+                {agendando ? 'Agregando…' : 'Agregar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

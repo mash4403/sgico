@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { CalendarClock, RefreshCw, User, Pencil, Gavel } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { CalendarClock, RefreshCw, User, Pencil, Gavel, Trash2, FileText } from 'lucide-react'
 
 const TIPO_LABEL = {
   tumor_solido: 'Tumor sólido',
@@ -19,7 +20,8 @@ export default function Agenda() {
     try {
       const { data, error } = await supabase
         .from('casos_comite')
-        .select('id, motivo, prioridad, sesion_id, sesion:sesiones_comite(id, fecha, tipo_comite, estado), pacientes(nombre, documento)')
+        // con_borrador: solo los casos agendados desde el formulario se pueden editar en él
+        .select('id, motivo, prioridad, sesion_id, con_borrador:borrador_data->>fecha_solicitud, sesion:sesiones_comite(id, fecha, tipo_comite, estado), pacientes(nombre, documento)')
         .eq('presentado', false)
         .not('sesion_id', 'is', null)
       if (error) throw error
@@ -42,6 +44,22 @@ export default function Agenda() {
   }
 
   useEffect(() => { fetchAgenda() }, [])
+
+  // Solo se listan casos sin presentar (acta sin firmar): se pueden descartar.
+  const eliminarCaso = async (c) => {
+    const nombre = c.pacientes?.nombre || 'este paciente'
+    const ok = window.confirm(
+      `¿Eliminar el caso de ${nombre}? Se borra de forma permanente junto con su borrador de acta. Esta acción no se puede deshacer.`
+    )
+    if (!ok) return
+    const { data, error } = await supabase.from('casos_comite').delete().eq('id', c.id).select('id')
+    if (error || !data?.length) {
+      toast.error(`No se pudo eliminar el caso${error ? `: ${error.message}` : ''}`)
+      return
+    }
+    toast.success('Caso eliminado')
+    fetchAgenda()
+  }
 
   const fmtFecha = (f) =>
     new Date(f).toLocaleDateString('es-CO', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
@@ -115,13 +133,24 @@ export default function Agenda() {
                       {c.pacientes?.documento || '—'}{c.motivo ? ` · ${c.motivo}` : ''}
                     </div>
                   </div>
-                  <button onClick={() => navigate(`/presentar/${c.id}`)} title="Editar caso"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-niebla border border-niebla/20 hover:text-hueso hover:border-niebla/40 transition-colors shrink-0">
-                    <Pencil size={13} /> Editar
-                  </button>
+                  {c.con_borrador ? (
+                    <button onClick={() => navigate(`/presentar/${c.id}`)} title="Editar caso"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-niebla border border-niebla/20 hover:text-hueso hover:border-niebla/40 transition-colors shrink-0">
+                      <Pencil size={13} /> Editar
+                    </button>
+                  ) : (
+                    <button onClick={() => navigate(`/casos/${c.id}`)} title="Ver caso"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-niebla border border-niebla/20 hover:text-hueso hover:border-niebla/40 transition-colors shrink-0">
+                      <FileText size={13} /> Ver caso
+                    </button>
+                  )}
                   <button onClick={() => navigate(`/casos/${c.id}/acta`)} title="Presentar y decidir en comité"
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-tinta bg-pulso hover:bg-pulso-oscuro transition-colors shrink-0">
                     <Gavel size={13} /> Presentar
+                  </button>
+                  <button onClick={() => eliminarCaso(c)} title="Eliminar caso (aún no presentado)"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-red-600 border border-red-300 hover:bg-red-50 transition-colors shrink-0">
+                    <Trash2 size={13} /> Eliminar
                   </button>
                 </div>
               ))}

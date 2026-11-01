@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { formatCOP } from '@/lib/utils'
 import {
   AlertTriangle, Users, Clock, TrendingDown, Shield,
-  Activity, Heart, XCircle, RefreshCw, Stethoscope, Target, TrendingUp
+  Activity, Heart, XCircle, RefreshCw, Stethoscope, Target, TrendingUp, ChevronDown, ChevronUp
 } from 'lucide-react'
 import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -102,6 +102,134 @@ function Gauge({ value, label, color, size = 100 }) {
   )
 }
 
+// Ahorro por caso, con la misma fórmula de vw_kpi_impacto_comite_mensual (migración 008):
+//   aprobado/modificado → costo propuesto − costo aprobado (ajuste de costo)
+//   rechazado           → costo propuesto − costo previo  (lo que se evitó pagar)
+function ahorroCaso(c) {
+  const propuesto = Number(c.costo_estimado || 0)
+  if (c.decision === 'rechazado') return propuesto - Number(c.costo_previo || 0)
+  return propuesto - Number(c.costo_molecula_aprobada ?? c.costo_estimado ?? 0)
+}
+
+const DECISION_TXT = { aprobado: 'Aprobado', modificado: 'Aprobado con modif.', rechazado: 'Rechazado' }
+const mesDe = (c) => (c.fecha_presentacion || c.fecha_solicitud || '').slice(0, 7)
+const fmtMes = (m) => new Date(`${m}-01T00:00:00`).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })
+
+// Desglose del ahorro acumulado: por componente, por mes y por caso
+function AhorroDetalle({ casos, onCaso }) {
+  const [componente, setComponente] = useState('') // '' | 'rechazo' | 'ajuste'
+  const [mes, setMes] = useState('')
+
+  const filas = casos.map(c => ({ ...c, ahorro: ahorroCaso(c), mes: mesDe(c),
+    componente: c.decision === 'rechazado' ? 'rechazo' : 'ajuste' }))
+  const suma = (xs) => xs.reduce((n, c) => n + c.ahorro, 0)
+
+  const rechazos = filas.filter(c => c.componente === 'rechazo')
+  const ajustes = filas.filter(c => c.componente === 'ajuste')
+  const ajustesConCambio = ajustes.filter(c => c.ahorro !== 0)
+
+  const meses = [...new Set(filas.map(c => c.mes).filter(Boolean))].sort().reverse()
+  const visibles = filas
+    .filter(c => (!componente || c.componente === componente) && (!mes || c.mes === mes))
+    .sort((a, b) => Math.abs(b.ahorro) - Math.abs(a.ahorro))
+
+  const colorValor = (v) => (v > 0 ? C.pulso : v < 0 ? C.peligro : C.nieblaOscura)
+  const chip = (activo) => `px-3 py-1.5 rounded-full text-xs border transition-colors ${
+    activo ? 'border-pulso/50 text-pulso bg-pulso/10' : 'border-niebla/20 text-niebla hover:text-hueso'}`
+
+  return (
+    <div className="mt-5 pt-4 border-t border-niebla/10 space-y-5">
+      {/* Por componente */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {[
+          { key: 'rechazo', label: 'Rechazos', val: suma(rechazos), sub: `${rechazos.length} casos · propuesto − costo previo` },
+          { key: 'ajuste', label: 'Ajustes de costo', val: suma(ajustes), sub: `${ajustesConCambio.length} de ${ajustes.length} aprobados con monto distinto` },
+          { key: '', label: 'Total', val: suma(filas), sub: `${filas.length} casos con costo propuesto` },
+        ].map(b => (
+          <button key={b.label} type="button" onClick={() => setComponente(b.key)}
+            className={`text-left rounded-xl p-4 border transition-colors ${
+              componente === b.key ? 'border-pulso/50 bg-pulso/5' : 'border-niebla/15 hover:border-niebla/30'}`}>
+            <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.2em]">{b.label}</p>
+            <p className="text-xl font-display font-bold mt-1" style={{ color: colorValor(b.val) }}>
+              {b.val < 0 ? '−' : ''}{formatCOP(Math.abs(b.val))}
+            </p>
+            <p className="text-xs text-niebla mt-1">{b.sub}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Por mes */}
+      <div>
+        <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.2em] mb-2">Por mes</p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setMes('')} className={chip(!mes)}>Todos</button>
+          {meses.map(m => {
+            const v = suma(filas.filter(c => c.mes === m && (!componente || c.componente === componente)))
+            return (
+              <button key={m} type="button" onClick={() => setMes(m)} className={chip(mes === m)}>
+                <span className="capitalize">{fmtMes(m)}</span>
+                <span className="ml-2 font-mono" style={{ color: colorValor(v) }}>{v < 0 ? '−' : ''}{formatCOP(Math.abs(v))}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Por caso */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[10px] font-mono text-niebla-oscura uppercase tracking-[0.15em]">
+              <th className="text-left font-medium py-2 pr-3">Fecha</th>
+              <th className="text-left font-medium py-2 pr-3">Paciente</th>
+              <th className="text-left font-medium py-2 pr-3">Medicamento / protocolo</th>
+              <th className="text-left font-medium py-2 pr-3">Decisión</th>
+              <th className="text-right font-medium py-2 px-2">Propuesto</th>
+              <th className="text-right font-medium py-2 px-2">Aprobado / previo</th>
+              <th className="text-right font-medium py-2 pl-2">Ahorro</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibles.length === 0 ? (
+              <tr><td colSpan={7} className="py-4 text-center text-niebla-oscura">Sin casos para este filtro</td></tr>
+            ) : visibles.map(c => (
+              <tr key={c.id} onClick={() => onCaso(c.id)} title="Ver caso"
+                  className="border-t border-niebla/10 cursor-pointer hover:bg-hueso/5 transition-colors">
+                <td className="py-2 pr-3 text-niebla font-mono text-xs">{c.fecha_presentacion || c.fecha_solicitud || '—'}</td>
+                <td className="py-2 pr-3 text-hueso">{c.pacientes?.nombre || `#${c.id}`}</td>
+                <td className="py-2 pr-3 text-niebla truncate max-w-[180px]">
+                  {c.molecula_aprobada || c.molecula_propuesta || c.protocolos?.nombre || '—'}
+                </td>
+                <td className="py-2 pr-3 text-niebla">{DECISION_TXT[c.decision] || c.decision}</td>
+                <td className="py-2 px-2 text-right font-mono text-niebla">{formatCOP(Number(c.costo_estimado || 0))}</td>
+                <td className="py-2 px-2 text-right font-mono text-niebla">
+                  {formatCOP(Number(c.decision === 'rechazado' ? (c.costo_previo || 0) : (c.costo_molecula_aprobada ?? c.costo_estimado ?? 0)))}
+                  <span className="block text-[10px] text-niebla-oscura">{c.decision === 'rechazado' ? 'previo' : 'aprobado'}</span>
+                </td>
+                <td className="py-2 pl-2 text-right font-mono font-semibold" style={{ color: colorValor(c.ahorro) }}>
+                  {c.ahorro < 0 ? '−' : ''}{formatCOP(Math.abs(c.ahorro))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {visibles.length > 0 && (
+            <tfoot>
+              <tr className="border-t border-niebla/20">
+                <td colSpan={6} className="py-2 pr-3 text-right text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em]">
+                  Subtotal ({visibles.length})
+                </td>
+                <td className="py-2 pl-2 text-right font-mono font-bold" style={{ color: colorValor(suma(visibles)) }}>
+                  {suma(visibles) < 0 ? '−' : ''}{formatCOP(Math.abs(suma(visibles)))}
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const [stats, setStats] = useState(null)
@@ -112,6 +240,8 @@ export default function Dashboard() {
   const [impacto, setImpacto] = useState([])
   const [kri, setKri] = useState([])
   const [pacientesDes, setPacientesDes] = useState([])
+  const [casosAhorro, setCasosAhorro] = useState([])
+  const [verDetalleAhorro, setVerDetalleAhorro] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const fetchData = async () => {
@@ -129,7 +259,7 @@ export default function Dashboard() {
         .in('estado', ['pendiente', 'vencido'])
 
       // MVP calidad — indicadores de desenlaces (migración 008)
-      const [efc, cmp, imp, riesgo, pacDes] = await Promise.all([
+      const [efc, cmp, imp, riesgo, pacDes, ahorro] = await Promise.all([
         supabase.from('vw_kpi_efectividad').select('*').maybeSingle(),
         supabase.from('vw_kpi_cumplimiento').select('*').maybeSingle(),
         supabase.from('vw_kpi_impacto_comite_mensual').select('*').limit(12),
@@ -138,6 +268,11 @@ export default function Dashboard() {
           .select('caso_id, paciente_nombre, protocolo, decision, mejor_respuesta, respondedor, pfs_real_meses, pfs_esperado, os_real_meses, os_esperado, costo_real_acumulado')
           .in('decision', ['aprobado', 'modificado'])
           .order('caso_id'),
+        // Desglose del ahorro: mismos casos que vw_kpi_impacto_comite_mensual
+        supabase.from('casos_comite')
+          .select('id, decision, fecha_presentacion, fecha_solicitud, costo_estimado, costo_molecula_aprobada, costo_previo, molecula_propuesta, molecula_aprobada, pacientes(nombre, documento), protocolos(nombre)')
+          .not('costo_estimado', 'is', null)
+          .in('decision', ['aprobado', 'modificado', 'rechazado']),
       ])
 
       setStats({ ...(dashData || {}), seguimientos_pendientes: pendCount || 0 })
@@ -148,6 +283,7 @@ export default function Dashboard() {
       setImpacto(imp.data || [])
       setKri(riesgo.data || [])
       setPacientesDes(pacDes.data || [])
+      setCasosAhorro(ahorro.data || [])
     } catch (err) {
       console.error('Error loading dashboard:', err)
       setStats({
@@ -208,8 +344,10 @@ export default function Dashboard() {
           sub={`${s.activos || 0} activos`} icon={Users} color={C.petroleoClaro} />
         <MetricCard label="Oportunidad" value={`${(s.oportunidad_promedio || 0).toFixed(1)}d`}
           sub="Solicitud → Comité" icon={Clock} color={C.niebla} />
-        <MetricCard label="Ahorro acumulado" value={formatCOP(s.diferencia_total || 0)}
-          sub="Diferencia pre/post" icon={TrendingDown} color={C.pulso} />
+        {/* Misma fórmula que "Impacto económico del comité" (vw_kpi_impacto_comite_mensual) */}
+        <MetricCard label={ahorroAcum >= 0 ? 'Ahorro acumulado' : 'Sobrecosto acumulado'}
+          value={formatCOP(Math.abs(ahorroAcum))} sub="Rechazos + ajustes de costo"
+          icon={ahorroAcum >= 0 ? TrendingDown : TrendingUp} color={ahorroAcum >= 0 ? C.pulso : C.peligro} />
         <MetricCard label="Seguimientos pendientes" value={s.seguimientos_pendientes || 0}
           sub={`${s.fallecidos || 0} fallecidos`} icon={AlertTriangle} color={C.bronce} />
       </div>
@@ -307,6 +445,12 @@ export default function Dashboard() {
                 stroke={C.pulso} fill={C.pulso} fillOpacity={0.15} />
             </AreaChart>
           </ResponsiveContainer>
+          <button type="button" onClick={() => setVerDetalleAhorro(v => !v)}
+            className="mt-3 flex items-center gap-1.5 text-sm text-pulso hover:underline">
+            {verDetalleAhorro ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {verDetalleAhorro ? 'Ocultar detalle del acumulado' : 'Ver detalle del acumulado'}
+          </button>
+          {verDetalleAhorro && <AhorroDetalle casos={casosAhorro} onCaso={id => navigate(`/casos/${id}`)} />}
         </Card>
       )}
 

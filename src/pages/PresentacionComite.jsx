@@ -39,6 +39,8 @@ const NA = '__NA__'
 const FECHA_DESCONOCIDA_CAC = '1800-01-01'
 const SIN_ESTADIO = 'Sin estadificación'
 const ANTECEDENTE_NEGATIVO = 'Antecedente negativo'
+const NO_HA_RECIBIDO = 'No ha recibido'
+const SIN_PROPUESTA = 'Sin propuesta'
 
 // Definiciones acordadas con el cliente para la prioridad del caso.
 const PRIORIDAD_OPTS = [
@@ -55,6 +57,9 @@ const normalizarBorrador = (bd) => {
   if (bd.patologia_realizada === 'no') bd.patologia_realizada = ''
   if (bd.estudios_patologia === NA) bd.estudios_patologia = ''
   if (bd.estudios_laboratorio === NA) bd.estudios_laboratorio = ''
+  if (bd.estado_fisico === NA) bd.estado_fisico = ''
+  if (bd.habito_tabaquico === NA) bd.habito_tabaquico = ''
+  if (bd.habito_alcohol === NA) bd.habito_alcohol = ''
   return bd
 }
 
@@ -471,14 +476,14 @@ export default function PresentacionComite() {
         // biomarcadores: sub-formulario estructurado, opcional (0..n filas)
         break
       case 3:
-        ;['comorbilidades','alergias','habito_tabaquico',
-          'habito_alcohol','medicacion_actual'].forEach(f => req(f))
+        ;['comorbilidades','alergias','medicacion_actual'].forEach(f => req(f))
+        req('habito_tabaquico', { allowNA: false }); req('habito_alcohol', { allowNA: false })
         break
       case 4:
         // Capacidad funcional
         req('ecog', { allowNA: false })
         req('eva')
-        req('estado_fisico')
+        req('estado_fisico', { allowNA: false })
         break
       case 5:
         // Estudios (paraclínicos): solo laboratorio requerido; imágenes opcionales.
@@ -494,14 +499,22 @@ export default function PresentacionComite() {
           .forEach(f => req(f))
         break
       case 7:
-        // Valoraciones interdisciplinarias — opcionales, sin validación
+        // Valoraciones interdisciplinarias: solo Sí / No, obligatorio responder
+        ;['valorado_psicologia','valorado_trabajo_social','valorado_paliativos']
+          .forEach(f => { if (data[f] !== true && data[f] !== false) errs[f] = 'Indique Sí o No' })
         break
       case 8:
-        req('protocolo_id'); req('evidencia_referencia')
-        req('pfs_esperado_estudio'); req('os_esperado_estudio')
+        req('protocolo_id')
+        // Sin propuesta: no hay estudio pivotal que referenciar
+        if (data.protocolo_id !== NA) {
+          req('evidencia_referencia')
+          req('pfs_esperado_estudio'); req('os_esperado_estudio')
+        }
         break
       case 9:
-        req('pregunta_comite'); req('tratamiento_propuesto')
+        req('pregunta_comite')
+        // Con protocolo, el tratamiento propuesto es el protocolo elegido
+        if (data.protocolo_id === NA) req('tratamiento_propuesto')
         req('justificacion_clinica')
         break
       case 10:
@@ -510,7 +523,9 @@ export default function PresentacionComite() {
           req('costo_ciclo_actual'); req('dias_ciclo_actual')
           req('pfs_actual_meses'); req('os_actual_meses')
         }
-        req('costo_ciclo_propuesto'); req('dias_ciclo_propuesto')
+        if (data.protocolo_id !== NA) {
+          req('costo_ciclo_propuesto'); req('dias_ciclo_propuesto')
+        }
         break
       case 11:
         break
@@ -660,7 +675,7 @@ export default function PresentacionComite() {
       const pacienteId = await obtenerPacienteId()
 
       const preguntaTexto = data.pregunta_comite
-      const tratamientoTexto = data.tratamiento_propuesto
+      const tratamientoTexto = tratamientoPropuestoTexto(data, protocolos)
       const justificacionTexto = data.justificacion_clinica
 
       const payload = {
@@ -746,11 +761,11 @@ export default function PresentacionComite() {
         fecha_patologia: data.patologia_realizada === 'si' ? cleanDate(data.fecha_patologia) : null,
         fecha_moleculares: cleanDate(data.fecha_moleculares),
 
-        tratamiento_quirurgico: clean(data.tratamiento_quirurgico),
+        tratamiento_quirurgico: cleanNoRecibido(data.tratamiento_quirurgico),
         // El nuevo campo combinado se mapea a tratamiento_qt para preservar BD
         tratamiento_qt: clean(data.quimioterapia_lineas_previas),
-        tratamiento_rt: clean(data.tratamiento_rt),
-        tratamiento_dirigido: clean(data.tratamiento_dirigido),
+        tratamiento_rt: cleanNoRecibido(data.tratamiento_rt),
+        tratamiento_dirigido: cleanNoRecibido(data.tratamiento_dirigido),
         respuesta_previa: clean(data.respuesta_previa),
 
         // Valoraciones interdisciplinarias (boolean | null + concepto opcional)
@@ -861,9 +876,9 @@ export default function PresentacionComite() {
         {step === 4 && <StepCapacidad {...{ data, update, errors, toggleNA }} />}
         {step === 5 && <StepEstudios {...{ data, update, errors, toggleNA }} />}
         {step === 6 && <StepTratamientos {...{ data, update, updateContextoActual, errors, toggleNA }} />}
-        {step === 7 && <StepValoraciones {...{ data, update }} />}
-        {step === 8 && <StepEvidencia {...{ data, update, errors, protocolos }} />}
-        {step === 9 && <StepPregunta {...{ data, update, errors }} />}
+        {step === 7 && <StepValoraciones {...{ data, update, errors }} />}
+        {step === 8 && <StepEvidencia {...{ data, update, errors, toggleNA, protocolos }} />}
+        {step === 9 && <StepPregunta {...{ data, update, errors, toggleNA, protocolos }} />}
         {step === 10 && <StepCostos {...{ data, update, errors, toggleNA, proyeccion }} />}
         {step === 11 && <StepAdjuntos {...{ data, update, errors }} />}
       </div>
@@ -1055,6 +1070,20 @@ const clean = (v) => (v === NA ? 'No aplica' : (v?.toString().trim() || null))
 const cleanDate = (v) => (v === NA || !v ? null : v)
 // En antecedentes, la marca registra que se indagó y fue negativo
 const cleanAntecedente = (v) => (v === NA ? ANTECEDENTE_NEGATIVO : clean(v))
+// Modalidades oncoespecíficas: la marca registra que no las ha recibido
+const cleanNoRecibido = (v) => (v === NA ? NO_HA_RECIBIDO : clean(v))
+
+// El tratamiento propuesto es el protocolo elegido; el texto libre solo
+// aplica cuando no hay protocolo propuesto.
+const protocoloElegido = (d, protocolos) =>
+  d.protocolo_id && d.protocolo_id !== NA
+    ? protocolos.find(p => String(p.id) === String(d.protocolo_id)) : null
+const tratamientoPropuestoTexto = (d, protocolos) => {
+  const p = protocoloElegido(d, protocolos)
+  if (p) return p.nombre
+  if (d.tratamiento_propuesto === NA) return SIN_PROPUESTA
+  return d.tratamiento_propuesto?.trim() || null
+}
 // TNM genérico (AJCC). Categorías transversales; el afinamiento por tumor es posterior.
 const T_OPTS = ['Tis', 'T0', 'T1', 'T1a', 'T1b', 'T1c', 'T2', 'T2a', 'T2b', 'T3', 'T4', 'T4a', 'T4b', 'Tx'].map(v => ({ value: v, label: v }))
 const N_OPTS = ['N0', 'N1', 'N1a', 'N1b', 'N1c', 'N2', 'N2a', 'N2b', 'N3', 'N3a', 'N3b', 'Nx'].map(v => ({ value: v, label: v }))
@@ -1653,8 +1682,7 @@ function StepCapacidad({ data, update, errors, toggleNA }) {
             label: `${i}${i === 0 ? ' — sin dolor' : i === 10 ? ' — máximo dolor' : ''}`,
           }))} error={errors.eva} />
       </Field>
-      <Field label="Estado físico actual — datos relevantes" required full error={errors.estado_fisico}
-        naValue={data.estado_fisico === NA} onToggleNA={() => toggleNA('estado_fisico')}>
+      <Field label="Estado físico actual — datos relevantes" required full error={errors.estado_fisico}>
         <TextArea value={data.estado_fisico} onChange={v => update('estado_fisico', v)}
           placeholder="Ej. Peso 62 kg, IMC 22. Buen estado general, deambula sin apoyo. Dolor óseo lumbar controlado con analgesia."
           error={errors.estado_fisico} />
@@ -1676,8 +1704,7 @@ function StepAntecedentes({ data, update, errors, toggleNA }) {
         <TextArea value={data.alergias} onChange={v => update('alergias', v)}
           placeholder="Ej. Penicilina (rash), AINES (broncoespasmo)" rows={2} error={errors.alergias} />
       </Field>
-      <Field label="Hábito tabáquico" required error={errors.habito_tabaquico}
-        naLabel={ANTECEDENTE_NEGATIVO} naValue={data.habito_tabaquico === NA} onToggleNA={() => toggleNA('habito_tabaquico')}>
+      <Field label="Hábito tabáquico" required error={errors.habito_tabaquico}>
         <Select value={data.habito_tabaquico} onChange={v => update('habito_tabaquico', v)}
           options={[
             { value: 'nunca',     label: 'Nunca fumó' },
@@ -1685,8 +1712,7 @@ function StepAntecedentes({ data, update, errors, toggleNA }) {
             { value: 'activo',    label: 'Fumador activo' },
           ]} error={errors.habito_tabaquico} />
       </Field>
-      <Field label="Hábito alcohólico" required error={errors.habito_alcohol}
-        naLabel={ANTECEDENTE_NEGATIVO} naValue={data.habito_alcohol === NA} onToggleNA={() => toggleNA('habito_alcohol')}>
+      <Field label="Hábito alcohólico" required error={errors.habito_alcohol}>
         <Select value={data.habito_alcohol} onChange={v => update('habito_alcohol', v)}
           options={[
             { value: 'nunca',     label: 'No consume' },
@@ -1770,24 +1796,24 @@ Línea 3: AC x4 ciclos + Paclitaxel x12 semanales (jul 2025-feb 2026)`}
       {/* OTRAS MODALIDADES */}
       <div className="md:col-span-2 mt-4">
         <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3">
-          🔬 Otras modalidades terapéuticas
+          🔬 Otras modalidades terapéuticas oncoespecíficas
         </h3>
       </div>
       <Field label="Tratamiento quirúrgico" required full error={errors.tratamiento_quirurgico}
-        naValue={data.tratamiento_quirurgico === NA} onToggleNA={() => toggleNA('tratamiento_quirurgico')}>
+        naLabel={NO_HA_RECIBIDO} naValue={data.tratamiento_quirurgico === NA} onToggleNA={() => toggleNA('tratamiento_quirurgico')}>
         <TextArea value={data.tratamiento_quirurgico} onChange={v => update('tratamiento_quirurgico', v)}
           placeholder="Ej. Mastectomía radical modificada derecha + vaciamiento axilar (15/06/2025)"
           error={errors.tratamiento_quirurgico} />
       </Field>
       <Field label="Radioterapia" required full error={errors.tratamiento_rt}
-        naValue={data.tratamiento_rt === NA} onToggleNA={() => toggleNA('tratamiento_rt')}>
+        naLabel={NO_HA_RECIBIDO} naValue={data.tratamiento_rt === NA} onToggleNA={() => toggleNA('tratamiento_rt')}>
         <TextArea value={data.tratamiento_rt} onChange={v => update('tratamiento_rt', v)}
           placeholder="Ej. RT externa pared torácica 50 Gy en 25 fracciones"
           error={errors.tratamiento_rt} />
       </Field>
       <Field label="Terapias dirigidas / inmunoterapia / hormonoterapia"
         required full error={errors.tratamiento_dirigido}
-        naValue={data.tratamiento_dirigido === NA} onToggleNA={() => toggleNA('tratamiento_dirigido')}>
+        naLabel={NO_HA_RECIBIDO} naValue={data.tratamiento_dirigido === NA} onToggleNA={() => toggleNA('tratamiento_dirigido')}>
         <TextArea value={data.tratamiento_dirigido} onChange={v => update('tratamiento_dirigido', v)}
           placeholder="Ej. Tamoxifeno 20 mg/día desde abril 2026 (en curso)"
           error={errors.tratamiento_dirigido} />
@@ -1805,11 +1831,10 @@ Línea 3: AC x4 ciclos + Paclitaxel x12 semanales (jul 2025-feb 2026)`}
 /* ──────────────────────────────────────────────────────────────
    STEP 7 — Valoraciones interdisciplinarias (opcional)
    ────────────────────────────────────────────────────────────── */
-function ValoracionField({ label, valorado, concepto, onValoradoChange, onConceptoChange }) {
+function ValoracionField({ label, valorado, concepto, onValoradoChange, onConceptoChange, error }) {
   const opciones = [
     { label: 'Sí', value: true },
     { label: 'No', value: false },
-    { label: 'Sin información', value: null },
   ]
   return (
     <div className="md:col-span-2 bg-slate-50 border border-slate-200 rounded-xl p-4">
@@ -1839,31 +1864,33 @@ function ValoracionField({ label, valorado, concepto, onValoradoChange, onConcep
             placeholder={`Resumen del concepto de ${label}...`} />
         </div>
       )}
+      {error && <p className="text-xs text-red-600 mt-2 font-medium">{error}</p>}
     </div>
   )
 }
 
-function StepValoraciones({ data, update }) {
+function StepValoraciones({ data, update, errors }) {
   return (
     <Section title="Valoraciones interdisciplinarias"
-      description="Conceptos de las disciplinas de apoyo (opcional)" icon={Users}>
+      description="¿El paciente fue valorado por las disciplinas de apoyo?" icon={Users}>
       <ValoracionField label="Psicología"
         valorado={data.valorado_psicologia} concepto={data.concepto_psicologia}
-        onValoradoChange={v => update('valorado_psicologia', v)}
+        onValoradoChange={v => update('valorado_psicologia', v)} error={errors.valorado_psicologia}
         onConceptoChange={v => update('concepto_psicologia', v)} />
       <ValoracionField label="Trabajo social"
         valorado={data.valorado_trabajo_social} concepto={data.concepto_trabajo_social}
-        onValoradoChange={v => update('valorado_trabajo_social', v)}
+        onValoradoChange={v => update('valorado_trabajo_social', v)} error={errors.valorado_trabajo_social}
         onConceptoChange={v => update('concepto_trabajo_social', v)} />
       <ValoracionField label="Cuidados paliativos"
         valorado={data.valorado_paliativos} concepto={data.concepto_paliativos}
-        onValoradoChange={v => update('valorado_paliativos', v)}
+        onValoradoChange={v => update('valorado_paliativos', v)} error={errors.valorado_paliativos}
         onConceptoChange={v => update('concepto_paliativos', v)} />
     </Section>
   )
 }
 
-function StepEvidencia({ data, update, errors, protocolos }) {
+function StepEvidencia({ data, update, errors, toggleNA, protocolos }) {
+  const sinPropuesta = data.protocolo_id === NA
   const onProtocoloChange = (id) => {
     update('protocolo_id', id)
     const p = protocolos.find(x => String(x.id) === String(id))
@@ -1877,14 +1904,17 @@ function StepEvidencia({ data, update, errors, protocolos }) {
   return (
     <Section title="Estudio que avala la solicitud" description="Evidencia pivotal del tratamiento PROPUESTO" icon={BookOpen}>
       <Field label="Protocolo / régimen propuesto" required full error={errors.protocolo_id}
-        hint="Al seleccionar un protocolo se autocompletan PFS y OS esperados.">
+        naLabel={SIN_PROPUESTA} naValue={sinPropuesta} onToggleNA={() => toggleNA('protocolo_id')}
+        hint={sinPropuesta
+          ? 'Sin propuesta: el estudio, PFS y OS esperados dejan de ser obligatorios.'
+          : 'Al seleccionar un protocolo se autocompletan PFS y OS esperados.'}>
         <Select value={data.protocolo_id} onChange={onProtocoloChange}
           options={protocolos.map(p => ({
             value: p.id,
             label: `${p.nombre}${p.estudio_pivotal ? ` — ${p.estudio_pivotal}` : ''}`,
           }))} placeholder="Seleccione un protocolo del catálogo..." error={errors.protocolo_id} />
       </Field>
-      <Field label="Estudio o referencia bibliográfica" required full error={errors.evidencia_referencia}>
+      <Field label="Estudio o referencia bibliográfica" required={!sinPropuesta} full error={errors.evidencia_referencia}>
         <Input value={data.evidencia_referencia} onChange={v => update('evidencia_referencia', v)}
           placeholder="Ej. KEYNOTE-189, FLAURA, CLEOPATRA" error={errors.evidencia_referencia} />
       </Field>
@@ -1903,13 +1933,13 @@ function StepEvidencia({ data, update, errors, protocolos }) {
         <Input value={data.evidencia_link} onChange={v => update('evidencia_link', v)}
           placeholder="https://doi.org/..." />
       </Field>
-      <Field label="PFS esperado del PROPUESTO (meses)" required error={errors.pfs_esperado_estudio}
+      <Field label="PFS esperado del PROPUESTO (meses)" required={!sinPropuesta} error={errors.pfs_esperado_estudio}
         hint="Progression-Free Survival reportado en el estudio pivotal.">
         <Input type="number" step="0.1" min="0" value={data.pfs_esperado_estudio}
           onChange={v => update('pfs_esperado_estudio', v)} placeholder="Ej. 8.8"
           error={errors.pfs_esperado_estudio} />
       </Field>
-      <Field label="OS esperado del PROPUESTO (meses)" required error={errors.os_esperado_estudio}
+      <Field label="OS esperado del PROPUESTO (meses)" required={!sinPropuesta} error={errors.os_esperado_estudio}
         hint="Overall Survival reportado en el estudio pivotal (referencia clínica).">
         <Input type="number" step="0.1" min="0" value={data.os_esperado_estudio}
           onChange={v => update('os_esperado_estudio', v)} placeholder="Ej. 22.0"
@@ -1919,7 +1949,8 @@ function StepEvidencia({ data, update, errors, protocolos }) {
   )
 }
 
-function StepPregunta({ data, update, errors }) {
+function StepPregunta({ data, update, errors, toggleNA, protocolos }) {
+  const protocolo = protocoloElegido(data, protocolos)
   return (
     <Section title="Pregunta al comité" description="Motivo concreto de presentación y propuesta clínica" icon={MessageSquareQuote}>
       <Field label="¿Cuál es la pregunta específica para el comité?"
@@ -1938,12 +1969,22 @@ function StepPregunta({ data, update, errors }) {
         <Select value={data.fuera_protocolo} onChange={v => update('fuera_protocolo', v)}
           options={[{ value: 'no', label: 'No — dentro de protocolo' }, { value: 'si', label: 'Sí — fuera de protocolo' }]} />
       </Field>
-      <Field label="Tratamiento propuesto" required full error={errors.tratamiento_propuesto}>
-        <TextArea value={data.tratamiento_propuesto} onChange={v => update('tratamiento_propuesto', v)}
-          rows={3}
-          placeholder="Ej. Osimertinib 80 mg/día VO continuo hasta progresión o toxicidad inaceptable"
-          error={errors.tratamiento_propuesto} />
-      </Field>
+      {protocolo ? (
+        <Field label="Tratamiento propuesto" required full
+          hint="Tomado del protocolo elegido en Evidencia. Para cambiarlo, cambia el protocolo propuesto.">
+          <Input value={protocolo.nombre} disabled onChange={() => {}} />
+        </Field>
+      ) : (
+        <Field label="Tratamiento propuesto" required full error={errors.tratamiento_propuesto}
+          naLabel={SIN_PROPUESTA} naValue={data.tratamiento_propuesto === NA}
+          onToggleNA={() => toggleNA('tratamiento_propuesto')}
+          hint="No se eligió protocolo en Evidencia: describe el tratamiento o marca «Sin propuesta»">
+          <TextArea value={data.tratamiento_propuesto} onChange={v => update('tratamiento_propuesto', v)}
+            rows={3}
+            placeholder="Ej. Osimertinib 80 mg/día VO continuo hasta progresión o toxicidad inaceptable"
+            error={errors.tratamiento_propuesto} />
+        </Field>
+      )}
       <Field label="Justificación clínica" required full error={errors.justificacion_clinica}>
         <TextArea value={data.justificacion_clinica} onChange={v => update('justificacion_clinica', v)}
           rows={4}
@@ -2012,12 +2053,12 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
           💊 Tratamiento propuesto
         </h3>
       </div>
-      <Field label="Costo por ciclo (COP)" required error={errors.costo_ciclo_propuesto}>
+      <Field label="Costo por ciclo (COP)" required={data.protocolo_id !== NA} error={errors.costo_ciclo_propuesto}>
         <Input type="number" min="0" value={data.costo_ciclo_propuesto}
           onChange={v => update('costo_ciclo_propuesto', v)} placeholder="Ej. 8000000"
           error={errors.costo_ciclo_propuesto} />
       </Field>
-      <Field label="Duración del ciclo (días)" required error={errors.dias_ciclo_propuesto}>
+      <Field label="Duración del ciclo (días)" required={data.protocolo_id !== NA} error={errors.dias_ciclo_propuesto}>
         <Input type="number" min="1" value={data.dias_ciclo_propuesto}
           onChange={v => update('dias_ciclo_propuesto', v)} placeholder="28"
           error={errors.dias_ciclo_propuesto} />

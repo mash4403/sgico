@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
   LayoutDashboard, FolderOpen, ClipboardCheck,
-  ClipboardPlus, LogOut, CalendarClock, Users
+  ClipboardPlus, LogOut, CalendarClock, Users, Landmark
 } from 'lucide-react'
 import ElCircuito from './ElCircuito'
 
@@ -11,6 +11,7 @@ const navItems = [
   { to: '/presentar', icon: ClipboardPlus, label: 'Presentar caso' },
   { to: '/agenda', icon: CalendarClock, label: 'Casos para comité' },
   { to: '/casos', icon: FolderOpen, label: 'Casos' },
+  { to: '/comites', icon: Landmark, label: 'Comités' },
   { to: '/seguimientos', icon: ClipboardCheck, label: 'Seguimientos' },
   { to: '/miembros', icon: Users, label: 'Miembros del comité' },
 ]

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { formatDate, formatCOP } from '@/lib/utils'
 import toast from 'react-hot-toast'
-import { ClipboardCheck, AlertTriangle, CheckCircle, Clock, XCircle, RefreshCw, TrendingDown, Activity } from 'lucide-react'
+import { ClipboardCheck, AlertTriangle, CheckCircle, Clock, XCircle, RefreshCw, TrendingDown, Activity, ChevronDown, ChevronRight, User, Search } from 'lucide-react'
 
 const ESTADOS_CLINICOS = [
   { value: 'sin_iniciar', label: 'Sin iniciar tratamiento' },
@@ -33,7 +33,19 @@ const tipoLabel = {
   semestral: 'SEMESTRAL',
   anual: 'ANUAL',
   ad_hoc: 'AD HOC',
+  trimestral: 'TRIMESTRAL',
+  cuatrimestral: 'CUATRIMESTRAL',
 }
+
+// Controles periódicos (migración 019): tipo = frecuencia + número consecutivo
+const etiquetaTipo = (s) =>
+  s.numero ? `${tipoLabel[s.tipo] || s.tipo} · CONTROL ${s.numero}` : (tipoLabel[s.tipo] || s.tipo)
+
+const FRECUENCIAS = [
+  { value: 'trimestral',    label: 'Trimestral' },
+  { value: 'cuatrimestral', label: 'Cuatrimestral' },
+  { value: 'semestral',     label: 'Semestral' },
+]
 
 const tipoColor = {
   post_comite: '#B9832F',
@@ -44,6 +56,8 @@ const tipoColor = {
   semestral: '#0E4C57',
   anual: '#6E8A90',
   ad_hoc: '#A9BEC2',
+  trimestral: '#156573',
+  cuatrimestral: '#0E9E8C',
 }
 
 const estadoIcon = {
@@ -66,6 +80,8 @@ export default function Seguimientos() {
   const [tab, setTab] = useState('pendientes')
   const [editando, setEditando] = useState(null)
   const [formData, setFormData] = useState({})
+  const [abiertos, setAbiertos] = useState(() => new Set()) // pacientes desplegados
+  const [busqueda, setBusqueda] = useState('')
 
   const fetchData = async () => {
     setLoading(true)
@@ -75,7 +91,7 @@ export default function Seguimientos() {
       .select(`
         *,
         casos_comite(
-          id, decision, molecula_aprobada, estado, fecha_presentacion, costo_post, costo_previo,
+          id, decision, molecula_aprobada, estado, fecha_presentacion, costo_post, costo_previo, frecuencia_seguimiento,
           pacientes(nombre, documento),
           medicos(nombre),
           diagnosticos(cie10, descripcion, estadio),
@@ -204,7 +220,54 @@ export default function Seguimientos() {
   const pendientes = seguimientos.filter(s => s.estado === 'pendiente').length
   const vencidos = seguimientos.filter(s => s.estado === 'vencido').length
   const postComite = seguimientos.filter(s => s.tipo === 'post_comite' && s.estado !== 'realizado').length
-  const trimestrales = seguimientos.filter(s => s.tipo.startsWith('trimestral') && s.estado !== 'realizado').length
+  const periodicos = seguimientos.filter(s => s.tipo !== 'post_comite' && s.estado !== 'realizado').length
+
+  // Agrupar las evaluaciones por paciente: primero quien tiene vencidos, luego por la próxima fecha
+  const grupos = (() => {
+    const mapa = new Map()
+    for (const s of seguimientos) {
+      const pac = s.casos_comite?.pacientes
+      const key = pac?.documento || `caso-${s.caso_id}`
+      if (!mapa.has(key)) mapa.set(key, { key, paciente: pac, items: [] })
+      mapa.get(key).items.push(s)
+    }
+    const q = busqueda.trim().toLowerCase()
+    return [...mapa.values()]
+      .map(g => {
+        const abiertas = g.items.filter(s => s.estado !== 'realizado')
+        return {
+          ...g,
+          vencidos: g.items.filter(s => s.estado === 'vencido').length,
+          pendientes: g.items.filter(s => s.estado === 'pendiente').length,
+          realizados: g.items.filter(s => s.estado === 'realizado').length,
+          proxima: abiertas[0]?.fecha_programada || null,
+        }
+      })
+      .filter(g => !q || g.paciente?.nombre?.toLowerCase().includes(q) || g.paciente?.documento?.toLowerCase().includes(q))
+      .sort((a, b) =>
+        (b.vencidos > 0) - (a.vencidos > 0) ||
+        (a.proxima || '9999').localeCompare(b.proxima || '9999') ||
+        (a.paciente?.nombre || '').localeCompare(b.paciente?.nombre || ''))
+  })()
+
+  const cambiarFrecuencia = async (caso, frecuencia) => {
+    if (frecuencia === caso.frecuencia_seguimiento) return
+    const label = FRECUENCIAS.find(f => f.value === frecuencia)?.label.toLowerCase()
+    if (!window.confirm(`¿Cambiar el seguimiento a ${label}? El control pendiente se reprograma con la nueva frecuencia.`)) return
+    const { error } = await supabase.rpc('cambiar_frecuencia_seguimiento', { p_caso_id: caso.id, p_frecuencia: frecuencia })
+    if (error) {
+      toast.error(`No se pudo cambiar la frecuencia: ${error.message}`)
+      return
+    }
+    toast.success(`Seguimiento ${label}`)
+    fetchData()
+  }
+
+  const toggleGrupo = (key) => setAbiertos(prev => {
+    const next = new Set(prev)
+    next.has(key) ? next.delete(key) : next.add(key)
+    return next
+  })
 
   return (
     <div className="space-y-6">
@@ -218,7 +281,7 @@ export default function Seguimientos() {
         {[
           { label: 'Vencidos', val: vencidos, color: '#ef4444', icon: AlertTriangle },
           { label: 'Post-comité pendiente', val: postComite, color: '#f59e0b', icon: Clock },
-          { label: 'Trimestrales pendiente', val: trimestrales, color: '#3b82f6', icon: Activity },
+          { label: 'Controles periódicos pendiente', val: periodicos, color: '#3b82f6', icon: Activity },
           { label: 'Total evaluaciones', val: seguimientos.length, color: '#94a3b8', icon: ClipboardCheck },
         ].map((item, i) => (
           <div key={i} className="rounded-xl p-4 border border-white/5"
@@ -247,7 +310,13 @@ export default function Seguimientos() {
                 : 'text-gray-500 border border-white/5 hover:border-white/10'
             }`}>{t.label}</button>
         ))}
-        <button onClick={fetchData} className="ml-auto px-3 py-2 rounded-lg text-gray-500 hover:text-gray-300 border border-white/5">
+        <div className="relative ml-auto">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+          <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar paciente o documento…"
+            className="pl-8 pr-3 py-2 rounded-lg text-sm border border-white/5 bg-transparent focus:outline-none focus:border-blue-500/30 w-64" />
+        </div>
+        <button onClick={fetchData} className="px-3 py-2 rounded-lg text-gray-500 hover:text-gray-300 border border-white/5">
           <RefreshCw size={14} />
         </button>
       </div>
@@ -256,14 +325,67 @@ export default function Seguimientos() {
       <div className="rounded-xl border border-white/5 overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)' }}>
         {loading ? (
           <div className="p-8 text-center text-gray-500">Cargando...</div>
-        ) : seguimientos.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">Sin evaluaciones {tab === 'pendientes' ? 'pendientes' : ''}</div>
+        ) : grupos.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            {busqueda ? 'Ningún paciente coincide con la búsqueda' : `Sin evaluaciones ${tab === 'pendientes' ? 'pendientes' : ''}`}
+          </div>
         ) : (
-          <div className="divide-y divide-white/[0.03]">
-            {seguimientos.map(s => {
+          <div className="divide-y divide-white/[0.06]">
+            {grupos.map(g => {
+              const abierto = abiertos.has(g.key) || !!busqueda.trim()
+              const casoRef = g.items[0]?.casos_comite
+              return (
+                <div key={g.key}>
+                  {/* Paciente */}
+                  <button type="button" onClick={() => toggleGrupo(g.key)}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.02]">
+                    {abierto ? <ChevronDown size={16} className="text-gray-500 shrink-0" /> : <ChevronRight size={16} className="text-gray-500 shrink-0" />}
+                    <User size={18} className="text-gray-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold truncate">{g.paciente?.nombre || '—'}</span>
+                        <span className="text-xs text-gray-500 font-mono">{g.paciente?.documento}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 truncate">
+                        {casoRef?.diagnosticos?.descripcion || casoRef?.molecula_aprobada || ''}
+                        {g.proxima ? ` · Próxima: ${formatDate(g.proxima)}` : ''}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {g.vencidos > 0 && (
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded" style={{ background: `${estadoColor.vencido}15`, color: estadoColor.vencido }}>
+                          {g.vencidos} vencido{g.vencidos > 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {g.pendientes > 0 && (
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded" style={{ background: `${estadoColor.pendiente}15`, color: estadoColor.pendiente }}>
+                          {g.pendientes} pendiente{g.pendientes > 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {g.realizados > 0 && (
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded" style={{ background: `${estadoColor.realizado}15`, color: estadoColor.realizado }}>
+                          {g.realizados} realizado{g.realizados > 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+
+                  {abierto && (
+                  <div className="divide-y divide-white/[0.03] border-t border-white/5 bg-white/[0.01]">
+                    {/* Frecuencia de los controles, por caso del paciente */}
+                    {[...new Map(g.items.map(s => [s.casos_comite?.id, s.casos_comite])).values()].filter(Boolean).map(caso => (
+                      <div key={caso.id} className="flex flex-wrap items-center gap-3 pl-12 pr-4 py-2.5 text-sm">
+                        <span className="text-gray-500">Frecuencia de seguimiento{caso.molecula_aprobada ? ` · ${caso.molecula_aprobada}` : ''}:</span>
+                        <select value={caso.frecuencia_seguimiento || 'trimestral'}
+                          onChange={e => cambiarFrecuencia(caso, e.target.value)}
+                          className="px-2 py-1 rounded-lg text-sm border border-white/10 bg-transparent focus:outline-none focus:border-blue-500/30">
+                          {FRECUENCIAS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                        </select>
+                      </div>
+                    ))}
+            {g.items.map(s => {
               const Icon = estadoIcon[s.estado] || Clock
               const color = estadoColor[s.estado]
-              const pac = s.casos_comite?.pacientes
               const proto = s.casos_comite?.protocolos
               const isExpanded = editando === s.id
               const diasVencido = s.estado === 'vencido'
@@ -273,7 +395,7 @@ export default function Seguimientos() {
               return (
                 <div key={s.id}>
                   {/* Row */}
-                  <div className="flex items-center gap-4 px-4 py-3 hover:bg-white/[0.02] cursor-pointer"
+                  <div className="flex items-center gap-4 pl-12 pr-4 py-3 hover:bg-white/[0.02] cursor-pointer"
                     onClick={() => {
                       if (s.estado === 'realizado' && !isExpanded) {
                         setEditando(s.id)
@@ -287,11 +409,7 @@ export default function Seguimientos() {
                     }}>
                     <Icon size={18} style={{ color }} className="flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium truncate">{pac?.nombre || '—'}</span>
-                        <span className="text-xs text-gray-500 font-mono">{pac?.documento}</span>
-                      </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-sm text-gray-300">
                         {s.casos_comite?.molecula_aprobada || 'Sin molécula'}
                         {proto ? ` · ${proto.nombre}` : ''}
                       </div>
@@ -299,7 +417,7 @@ export default function Seguimientos() {
                     <div className="text-center flex-shrink-0">
                       <div className="text-xs font-semibold px-2.5 py-1 rounded"
                         style={{ background: `${tColor}15`, color: tColor, border: `1px solid ${tColor}30` }}>
-                        {tipoLabel[s.tipo] || s.tipo}
+                        {etiquetaTipo(s)}
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0 w-28">
@@ -564,6 +682,11 @@ export default function Seguimientos() {
                         {s.observaciones && <p className="col-span-3">Obs: <span className="text-gray-300">{s.observaciones}</span></p>}
                       </div>
                     </div>
+                  )}
+                </div>
+              )
+            })}
+                  </div>
                   )}
                 </div>
               )

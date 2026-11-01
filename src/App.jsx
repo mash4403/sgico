@@ -9,6 +9,7 @@ import Casos from './pages/Casos'
 import CasoDetalle from './pages/CasoDetalle'
 import PresentacionComite from './pages/PresentacionComite'
 import Agenda from './pages/Agenda'
+import Comites from './pages/Comites'
 import MesaComite from './pages/MesaComite'
 import Seguimientos from './pages/Seguimientos'
 import MiembrosComite from './pages/MiembrosComite'
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="/casos/:id" element={<CasoDetalle />} />
           <Route path="/casos/:id/acta" element={<MesaComite />} />
           <Route path="/agenda" element={<Agenda />} />
+          <Route path="/comites" element={<Comites />} />
           <Route path="/presentar" element={<PresentacionComite />} />
           <Route path="/presentar/:id" element={<PresentacionComite />} />
           <Route path="/seguimientos" element={<Seguimientos />} />

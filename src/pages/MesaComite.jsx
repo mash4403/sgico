@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import {
   ArrowLeft, Gavel, Printer, Plus, X, Lock,
   Loader2, ClipboardList, MessagesSquare, Users, FileSignature, ClipboardCopy, Paperclip, FileText,
+  ChevronLeft, ChevronRight, Maximize2, Minimize2,
 } from 'lucide-react'
 
 const INTENCION_OPTS = [
@@ -62,8 +63,15 @@ const emptyForm = {
   decision_final: '',
   observaciones: '',
   costo_aprobado: '',   // costo que el comité aprobó (casos_comite.costo_molecula_aprobada)
+  frecuencia_seguimiento: 'trimestral', // casos_comite.frecuencia_seguimiento
   participantes: [],
 }
+
+const FRECUENCIA_OPTS = [
+  { value: 'trimestral',    label: 'Trimestral (cada 3 meses)' },
+  { value: 'cuatrimestral', label: 'Cuatrimestral (cada 4 meses)' },
+  { value: 'semestral',     label: 'Semestral (cada 6 meses)' },
+]
 
 const esAprobacionFinal = (d) => d === 'aprobado' || d === 'modificado'
 
@@ -83,8 +91,34 @@ export default function MesaComite() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState(false)
+  // Presentación por temas: una sección a la vez, a pantalla completa
+  const [seccion, setSeccion] = useState(0)
+  const [pantallaCompleta, setPantallaCompleta] = useState(false)
+  const totalSecciones = caso?.adjuntos?.length > 0 ? 6 : 5
 
   useEffect(() => { cargarDatos() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Flechas ← → cambian de tema, salvo mientras se escribe en un campo
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.closest?.('input, textarea, select, [contenteditable="true"]')) return
+      if (e.key === 'ArrowRight') setSeccion(i => Math.min(i + 1, totalSecciones - 1))
+      if (e.key === 'ArrowLeft')  setSeccion(i => Math.max(i - 1, 0))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [totalSecciones])
+
+  useEffect(() => {
+    const onChange = () => setPantallaCompleta(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  const togglePantallaCompleta = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.()
+    else document.documentElement.requestFullscreen?.().catch(() => toast.error('El navegador no permitió la pantalla completa'))
+  }
 
   async function cargarDatos() {
     setLoading(true)
@@ -122,6 +156,7 @@ export default function MesaComite() {
           decision_final:  actaRes.data.decision_final || '',
           observaciones:   actaRes.data.observaciones || '',
           costo_aprobado:  costoAprobadoInicial(casoRes.data),
+          frecuencia_seguimiento: casoRes.data.frecuencia_seguimiento || 'trimestral',
           participantes:   Array.isArray(actaRes.data.participantes) ? actaRes.data.participantes : [],
         })
       } else {
@@ -131,6 +166,7 @@ export default function MesaComite() {
           ...emptyForm,
           resumen_clinico: generarResumenClinico(casoRes.data),
           costo_aprobado: costoAprobadoInicial(casoRes.data),
+          frecuencia_seguimiento: casoRes.data.frecuencia_seguimiento || 'trimestral',
         })
       }
     } catch (e) {
@@ -145,8 +181,8 @@ export default function MesaComite() {
 
   const setField = (key, value) => setForm(f => ({ ...f, [key]: value }))
 
-  // Persiste el costo aprobado en el caso. Si la decisión no es una
-  // aprobación (o el valor es inválido), se limpia a null.
+  // Persiste en el caso el costo aprobado y la frecuencia de seguimiento.
+  // Si la decisión no es una aprobación (o el valor es inválido), el costo se limpia a null.
   async function persistirCostoAprobado() {
     const raw = form.costo_aprobado
     const costo = esAprobacionFinal(form.decision_final)
@@ -155,7 +191,7 @@ export default function MesaComite() {
         : null
     const { error } = await supabase
       .from('casos_comite')
-      .update({ costo_molecula_aprobada: costo })
+      .update({ costo_molecula_aprobada: costo, frecuencia_seguimiento: form.frecuencia_seguimiento || 'trimestral' })
       .eq('id', Number(id))
     if (error) throw error
   }
@@ -256,11 +292,12 @@ export default function MesaComite() {
       const { data: userData } = await supabase.auth.getUser()
       const cerrada_por = userData?.user?.email || userData?.user?.id || null
       const hash_contenido = await hashActa()
+      // Antes de firmar: el trigger de aprobación programa los seguimientos con esta frecuencia
+      await persistirCostoAprobado()
       const { error } = await supabase
         .from('actas_comite')
         .upsert(buildPayload(true, { cerrada_por, hash_contenido }), { onConflict: 'caso_id' })
       if (error) throw error
-      await persistirCostoAprobado()
       // Firmar el acta = el caso fue presentado en comité: sale de la agenda
       await supabase.from('casos_comite').update({ presentado: true }).eq('id', Number(id))
       toast.success('Acta firmada y caso actualizado')
@@ -334,14 +371,24 @@ export default function MesaComite() {
                 Acta firmada el {formatDateTime(acta.fecha_firma)}
               </span>
             )}
-            <button onClick={copiarAHistoriaClinica}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-800 font-semibold text-sm hover:bg-slate-50">
-              <ClipboardCopy className="w-4 h-4" /> Copiar a historia clínica
-            </button>
+            {/* La historia clínica solo recibe el acta ya firmada */}
+            {readOnly && (
+              <button onClick={copiarAHistoriaClinica}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-800 font-semibold text-sm hover:bg-slate-50">
+                <ClipboardCopy className="w-4 h-4" /> Copiar a historia clínica
+              </button>
+            )}
             <button onClick={() => window.print()}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-pulso text-tinta font-semibold text-sm hover:bg-pulso-oscuro">
               <Printer className="w-4 h-4" /> Imprimir / PDF
             </button>
+            {/* Acta cerrada: seguir con los demás casos de la sesión */}
+            {readOnly && (
+              <button onClick={() => navigate('/agenda')}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700">
+                <Gavel className="w-4 h-4" /> Volver al comité
+              </button>
+            )}
           </div>
         </div>
         <ActaDocumento caso={caso} form={form} acta={acta} />
@@ -353,10 +400,145 @@ export default function MesaComite() {
   const badgeLabel = DECISION_LABEL[caso.decision] || caso.decision
   const diagnostico = [caso.cie10, caso.diagnostico_descripcion].filter(Boolean).join(' — ')
 
+  const textoGrande = `${inputBase} resize-none flex-1 min-h-[16rem] !text-lg leading-relaxed`
+  const secciones = [
+    {
+      key: 'resumen', title: 'Resumen clínico', icon: ClipboardList,
+      actions: !readOnly && (
+        <button type="button" onClick={handleRegenerarResumen}
+          className="text-xs text-blue-600 hover:underline">
+          Regenerar desde caso
+        </button>
+      ),
+      content: (
+        <textarea
+          value={form.resumen_clinico}
+          onChange={e => setField('resumen_clinico', e.target.value)}
+          disabled={readOnly}
+          placeholder="Síntesis del caso para el comité..."
+          className={textoGrande} />
+      ),
+    },
+    caso.adjuntos?.length > 0 && {
+      key: 'adjuntos', title: `Adjuntos (${caso.adjuntos.length})`, icon: Paperclip,
+      content: (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {caso.adjuntos.map((f, i) => (
+            <button key={i} type="button" onClick={() => descargarAdjunto(f.path)}
+              className="w-full flex items-center gap-3 p-4 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 text-left transition-colors">
+              <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+              <span className="text-base text-slate-800 truncate flex-1">{f.name}</span>
+              {f.size ? <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span> : null}
+            </button>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: 'discusion', title: 'Discusión', icon: MessagesSquare,
+      content: (
+        <textarea
+          value={form.discusion}
+          onChange={e => setField('discusion', e.target.value)}
+          disabled={readOnly}
+          placeholder="Puntos discutidos durante el comité..."
+          className={textoGrande} />
+      ),
+    },
+    {
+      key: 'asistencia', title: 'Asistencia y firmas', icon: Users,
+      content: readOnly
+        ? <FirmasView participantes={form.participantes} cerradaPor={acta?.cerrada_por} />
+        : <AsistenciaEditor roster={roster} seleccionados={form.participantes} onToggle={toggleAsistio} />,
+    },
+    {
+      key: 'decision', title: 'Decisión', icon: FileSignature,
+      content: (
+        <div className="flex-1 flex flex-col gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Intención</label>
+              <select
+                value={form.intencion}
+                onChange={e => setField('intencion', e.target.value)}
+                disabled={readOnly} className={`${inputBase} !text-base`}>
+                <option value="">Seleccione...</option>
+                {INTENCION_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Decisión final</label>
+              <select
+                value={form.decision_final}
+                onChange={e => setField('decision_final', e.target.value)}
+                disabled={readOnly} className={`${inputBase} !text-base`}>
+                <option value="">Seleccione...</option>
+                {DECISION_FINAL_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+          {esAprobacionFinal(form.decision_final) && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">
+                Costo aprobado por el comité <span className="normal-case text-slate-500">(por ciclo, COP)</span>
+              </label>
+              <input
+                type="number" min="0"
+                value={form.costo_aprobado}
+                onChange={e => setField('costo_aprobado', e.target.value)}
+                disabled={readOnly}
+                placeholder={caso.costo_estimado != null ? `Propuesto: ${caso.costo_estimado}` : 'Ej. 2500000'}
+                className={`${inputBase} !text-base`} />
+              <p className="text-xs text-slate-500 mt-1">
+                Precargado con el costo propuesto. Cámbialo solo si el comité aprobó un monto distinto — mayor o menor.
+              </p>
+            </div>
+          )}
+          {esAprobacionFinal(form.decision_final) && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Frecuencia de seguimiento</label>
+              <select
+                value={form.frecuencia_seguimiento}
+                onChange={e => setField('frecuencia_seguimiento', e.target.value)}
+                disabled={readOnly} className={`${inputBase} !text-base`}>
+                {FRECUENCIA_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <p className="text-xs text-slate-500 mt-1">
+                Siempre se programa el seguimiento post-comité; luego los controles con esta frecuencia. Se puede cambiar después en Seguimientos.
+              </p>
+            </div>
+          )}
+          <div className="flex-1 flex flex-col">
+            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Decisión (narrativa)</label>
+            <textarea
+              value={form.decision}
+              onChange={e => setField('decision', e.target.value)}
+              disabled={readOnly}
+              placeholder="Texto explicativo de la decisión..."
+              className={textoGrande} />
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'observaciones', title: 'Observaciones', icon: ClipboardList,
+      content: (
+        <textarea
+          value={form.observaciones}
+          onChange={e => setField('observaciones', e.target.value)}
+          disabled={readOnly}
+          placeholder="Observaciones del acta: información al paciente, constancias, salvedades..."
+          className={textoGrande} />
+      ),
+    },
+  ].filter(Boolean)
+  const actual = Math.min(seccion, secciones.length - 1)
+  const sec = secciones[actual]
+
   return (
-    <div className="max-w-5xl mx-auto p-4 lg:p-6 print:p-0 print:max-w-full">
+    <div className="max-w-7xl mx-auto p-4 lg:p-6 print:p-0 print:max-w-full">
       {/* Header */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-6 mb-6 print:shadow-none print:border print:rounded-none">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-300 px-6 py-4 mb-4 print:shadow-none print:border print:rounded-none">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4 print:hidden">
           <button onClick={() => navigate(`/casos/${id}`)}
             className="flex items-center gap-2 text-sm text-slate-700 hover:text-slate-900 font-medium">
@@ -382,120 +564,47 @@ export default function MesaComite() {
         </div>
       </div>
 
-      {/* Secciones */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <SectionCard title="Resumen clínico" icon={ClipboardList}
-          actions={!readOnly && (
-            <button type="button" onClick={handleRegenerarResumen}
-              className="text-xs text-blue-600 hover:underline">
-              Regenerar desde caso
-            </button>
-          )}>
-          <textarea
-            value={form.resumen_clinico}
-            onChange={e => setField('resumen_clinico', e.target.value)}
-            disabled={readOnly} rows={8}
-            placeholder="Síntesis del caso para el comité..."
-            className={`${inputBase} resize-none`} />
-        </SectionCard>
+      {/* Temas: navegación */}
+      <div className="flex items-center gap-2 mb-4 print:hidden">
+        <div className="flex-1 flex gap-1 overflow-x-auto">
+          {secciones.map((sec, i) => {
+            const Icon = sec.icon
+            return (
+              <button key={sec.key} type="button" onClick={() => setSeccion(i)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                  i === actual ? 'bg-blue-600 text-white' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}>
+                <Icon className="w-4 h-4" /> {sec.title}
+              </button>
+            )
+          })}
+        </div>
+        <button type="button" onClick={togglePantallaCompleta}
+          title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shrink-0">
+          {pantallaCompleta ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+        </button>
+      </div>
 
-        {caso.adjuntos?.length > 0 && (
-          <SectionCard title={`Adjuntos (${caso.adjuntos.length})`} icon={Paperclip}>
-            <div className="space-y-2">
-              {caso.adjuntos.map((f, i) => (
-                <button key={i} type="button" onClick={() => descargarAdjunto(f.path)}
-                  className="w-full flex items-center gap-2 p-3 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 text-left transition-colors">
-                  <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span className="text-sm text-slate-800 truncate flex-1">{f.name}</span>
-                  {f.size ? <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span> : null}
-                </button>
-              ))}
-            </div>
-          </SectionCard>
-        )}
+      {/* Tema actual: ocupa toda la pantalla */}
+      <SectionCard title={sec.title} icon={sec.icon} actions={sec.actions} fill>
+        {sec.content}
+      </SectionCard>
 
-        <SectionCard title="Discusión" icon={MessagesSquare}>
-          <textarea
-            value={form.discusion}
-            onChange={e => setField('discusion', e.target.value)}
-            disabled={readOnly} rows={8}
-            placeholder="Puntos discutidos durante el comité..."
-            className={`${inputBase} resize-none`} />
-        </SectionCard>
-
-        <SectionCard title="Asistencia y firmas" icon={Users}>
-          {readOnly
-            ? <FirmasView participantes={form.participantes} cerradaPor={acta?.cerrada_por} />
-            : <AsistenciaEditor roster={roster} seleccionados={form.participantes} onToggle={toggleAsistio} />}
-        </SectionCard>
-
-        <SectionCard title="Decisión" icon={FileSignature}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Intención</label>
-              <select
-                value={form.intencion}
-                onChange={e => setField('intencion', e.target.value)}
-                disabled={readOnly} className={inputBase}>
-                <option value="">Seleccione...</option>
-                {INTENCION_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Decisión final</label>
-              <select
-                value={form.decision_final}
-                onChange={e => setField('decision_final', e.target.value)}
-                disabled={readOnly} className={inputBase}>
-                <option value="">Seleccione...</option>
-                {DECISION_FINAL_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            {esAprobacionFinal(form.decision_final) && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">
-                  Costo aprobado por el comité <span className="normal-case text-slate-500">(por ciclo, COP)</span>
-                </label>
-                <input
-                  type="number" min="0"
-                  value={form.costo_aprobado}
-                  onChange={e => setField('costo_aprobado', e.target.value)}
-                  disabled={readOnly}
-                  placeholder={caso.costo_estimado != null ? `Propuesto: ${caso.costo_estimado}` : 'Ej. 2500000'}
-                  className={inputBase} />
-                <p className="text-xs text-slate-500 mt-1">
-                  Precargado con el costo propuesto. Cámbialo solo si el comité aprobó un monto distinto — mayor o menor.
-                </p>
-              </div>
-            )}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Decisión (narrativa)</label>
-              <textarea
-                value={form.decision}
-                onChange={e => setField('decision', e.target.value)}
-                disabled={readOnly} rows={4}
-                placeholder="Texto explicativo de la decisión..."
-                className={`${inputBase} resize-none`} />
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Observaciones" icon={ClipboardList}>
-          <textarea
-            value={form.observaciones}
-            onChange={e => setField('observaciones', e.target.value)}
-            disabled={readOnly} rows={4}
-            placeholder="Observaciones del acta: información al paciente, constancias, salvedades..."
-            className={`${inputBase} resize-none`} />
-        </SectionCard>
+      <div className="flex items-center justify-between gap-3 mt-4 print:hidden">
+        <button type="button" onClick={() => setSeccion(actual - 1)} disabled={actual === 0}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
+          <ChevronLeft className="w-4 h-4" /> {actual > 0 ? secciones[actual - 1].title : 'Anterior'}
+        </button>
+        <span className="text-xs font-mono text-slate-500">{actual + 1} / {secciones.length}</span>
+        <button type="button" onClick={() => setSeccion(actual + 1)} disabled={actual === secciones.length - 1}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
+          {actual < secciones.length - 1 ? secciones[actual + 1].title : 'Siguiente'} <ChevronRight className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Acciones */}
       <div className="flex flex-col sm:flex-row sm:justify-end gap-3 mt-6 print:hidden">
-        <button onClick={copiarAHistoriaClinica}
-          className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-white border border-slate-400 text-slate-800 hover:bg-slate-50 text-sm font-medium">
-          <ClipboardCopy className="w-4 h-4" /> Copiar a historia clínica
-        </button>
         {readOnly ? (
           <button onClick={() => window.print()}
             className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium">
@@ -532,9 +641,10 @@ export default function MesaComite() {
   )
 }
 
-function SectionCard({ title, icon: Icon, actions, children }) {
+function SectionCard({ title, icon: Icon, actions, children, fill }) {
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-6 print:shadow-none print:border print:rounded-none">
+    <div className={`bg-white rounded-2xl shadow-sm border border-slate-300 p-6 print:shadow-none print:border print:rounded-none ${
+      fill ? 'flex flex-col min-h-[calc(100vh-17rem)]' : ''}`}>
       <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-200">
         <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
           <Icon className="w-5 h-5" />
@@ -542,7 +652,7 @@ function SectionCard({ title, icon: Icon, actions, children }) {
         <h2 className="text-lg font-bold text-slate-900">{title}</h2>
         {actions && <div className="ml-auto print:hidden">{actions}</div>}
       </div>
-      {children}
+      {fill ? <div className="flex-1 flex flex-col">{children}</div> : children}
     </div>
   )
 }
