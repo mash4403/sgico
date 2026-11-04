@@ -5,6 +5,8 @@ import { mensajeCostoPrevio, mensajeSinDiferencial } from '../lib/utils'
 import { buscarCIE10, CIE10_INDEX } from '../lib/cie10'
 import { buscarHistologia } from '../lib/histologia'
 import toast from 'react-hot-toast'
+import NuevoProtocoloModal from '../components/NuevoProtocoloModal'
+import { TIPOS_EVIDENCIA } from '../lib/evidencia'
 import {
   ChevronLeft, ChevronRight, Send, Check,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
@@ -877,7 +879,7 @@ export default function PresentacionComite() {
         {step === 5 && <StepEstudios {...{ data, update, errors, toggleNA }} />}
         {step === 6 && <StepTratamientos {...{ data, update, updateContextoActual, errors, toggleNA }} />}
         {step === 7 && <StepValoraciones {...{ data, update, errors }} />}
-        {step === 8 && <StepEvidencia {...{ data, update, errors, toggleNA, protocolos }} />}
+        {step === 8 && <StepEvidencia {...{ data, update, errors, toggleNA, protocolos, setProtocolos }} />}
         {step === 9 && <StepPregunta {...{ data, update, errors, toggleNA, protocolos }} />}
         {step === 10 && <StepCostos {...{ data, update, errors, toggleNA, proyeccion }} />}
         {step === 11 && <StepAdjuntos {...{ data, update, errors }} />}
@@ -1889,11 +1891,14 @@ function StepValoraciones({ data, update, errors }) {
   )
 }
 
-function StepEvidencia({ data, update, errors, toggleNA, protocolos }) {
+function StepEvidencia({ data, update, errors, toggleNA, protocolos, setProtocolos }) {
   const sinPropuesta = data.protocolo_id === NA
+  const [nuevoProtocolo, setNuevoProtocolo] = useState(false)
   const onProtocoloChange = (id) => {
     update('protocolo_id', id)
-    const p = protocolos.find(x => String(x.id) === String(id))
+    aplicarProtocolo(protocolos.find(x => String(x.id) === String(id)))
+  }
+  const aplicarProtocolo = (p) => {
     if (p) {
       if (p.estudio_pivotal) update('evidencia_referencia', p.estudio_pivotal)
       if (p.tipo_evidencia)  update('evidencia_tipo', p.tipo_evidencia)
@@ -1915,25 +1920,30 @@ function StepEvidencia({ data, update, errors, toggleNA, protocolos }) {
             value: p.id,
             label: `${p.nombre}${p.estudio_pivotal ? ` — ${p.estudio_pivotal}` : ''}`,
           }))} placeholder="Seleccione un protocolo del catálogo..." error={errors.protocolo_id} />
+        <button type="button" onClick={() => setNuevoProtocolo(true)}
+          className="mt-1.5 text-xs font-semibold text-blue-700 hover:underline">
+          ¿No está en el catálogo? + Agregar protocolo
+        </button>
       </Field>
+      {nuevoProtocolo && (
+        <NuevoProtocoloModal
+          inicial={{ cie10: data.cie10 && data.cie10 !== NA ? data.cie10 : '',
+                     diagnostico: data.diagnostico_descripcion && data.diagnostico_descripcion !== NA ? data.diagnostico_descripcion : '' }}
+          onClose={() => setNuevoProtocolo(false)}
+          onCreado={(p) => {
+            setNuevoProtocolo(false)
+            setProtocolos(prev => [...prev, p].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')))
+            update('protocolo_id', String(p.id))
+            aplicarProtocolo(p)
+          }} />
+      )}
       <Field label="Estudio o referencia bibliográfica" required={!sinPropuesta} full error={errors.evidencia_referencia}>
         <Input value={data.evidencia_referencia} onChange={v => update('evidencia_referencia', v)}
           placeholder="Ej. KEYNOTE-189, FLAURA, CLEOPATRA" error={errors.evidencia_referencia} />
       </Field>
       <Field label="Tipo de evidencia">
         <Select value={data.evidencia_tipo} onChange={v => update('evidencia_tipo', v)}
-          options={[
-            { value: 'fase_3',               label: 'Ensayo fase III' },
-            { value: 'fase_2',               label: 'Ensayo fase II' },
-            { value: 'fase_1',               label: 'Ensayo fase I' },
-            { value: 'metanalisis',          label: 'Metaanálisis' },
-            { value: 'revision_sistematica', label: 'Revisión sistemática' },
-            { value: 'guia',                 label: 'Guía de práctica clínica' },
-            { value: 'consenso',             label: 'Consenso de expertos' },
-            { value: 'real_world',           label: 'Evidencia del mundo real (RWE)' },
-            { value: 'reporte_caso',         label: 'Reporte de caso' },
-            { value: 'otro',                 label: 'Otro' },
-          ]} />
+          options={TIPOS_EVIDENCIA} />
       </Field>
       <Field label="Enlace al estudio (DOI / PubMed)">
         <Input value={data.evidencia_link} onChange={v => update('evidencia_link', v)}
