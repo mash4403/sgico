@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
   LayoutDashboard, FolderOpen, ClipboardCheck,
-  ClipboardPlus, LogOut, CalendarClock, Users, Landmark
+  ClipboardPlus, LogOut, CalendarClock, Users, Landmark, CalendarPlus
 } from 'lucide-react'
 import ElCircuito from './ElCircuito'
+import NuevoComiteModal from './NuevoComiteModal'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -18,6 +20,7 @@ const navItems = [
 
 export default function Layout({ children, session }) {
   const navigate = useNavigate()
+  const [nuevoComite, setNuevoComite] = useState(false)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -41,6 +44,12 @@ export default function Layout({ children, session }) {
 
         {/* Nav */}
         <nav className="flex-1 p-3 flex flex-col gap-1">
+          <button type="button" onClick={() => setNuevoComite(true)}
+            className="flex items-center gap-3 px-3 py-2.5 mb-2 rounded-xl text-sm font-medium
+                       text-tinta bg-pulso hover:bg-pulso-oscuro transition-all">
+            <CalendarPlus size={18} />
+            Nuevo comité
+          </button>
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} end
               className={({ isActive }) =>
@@ -71,6 +80,12 @@ export default function Layout({ children, session }) {
           </div>
         </div>
       </aside>
+
+      {nuevoComite && (
+        <NuevoComiteModal
+          onClose={() => setNuevoComite(false)}
+          onCreado={(s) => { setNuevoComite(false); navigate('/comites', { state: { creado: s.id } }) }} />
+      )}
 
       {/* Main content */}
       <main className="flex-1 overflow-auto print:overflow-visible">

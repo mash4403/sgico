@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
-import { Landmark, RefreshCw, Search, ChevronDown, ChevronUp, User, Gavel, FileText } from 'lucide-react'
+import NuevoComiteModal from '../components/NuevoComiteModal'
+import { Landmark, RefreshCw, Search, ChevronDown, ChevronUp, User, Gavel, FileText, CalendarPlus } from 'lucide-react'
 
 const TIPO_LABEL = {
   tumor_solido: 'Tumor sólido',
@@ -35,6 +36,8 @@ const estadoSesion = (s) => {
 
 export default function Comites() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [nuevo, setNuevo] = useState(false)
   const [sesiones, setSesiones] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -58,7 +61,12 @@ export default function Comites() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchSesiones() }, [])
+  // Recarga al entrar y cuando se crea un comité desde la barra lateral (abre el nuevo)
+  const creado = location.state?.creado
+  useEffect(() => {
+    fetchSesiones()
+    if (creado) { setAbierta(creado); setFiltroEstado(''); setSearch('') }
+  }, [creado])
 
   const filtradas = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -96,6 +104,10 @@ export default function Comites() {
 
   return (
     <div className="space-y-6">
+      {nuevo && (
+        <NuevoComiteModal onClose={() => setNuevo(false)}
+          onCreado={(c) => { setNuevo(false); setAbierta(c.id); fetchSesiones() }} />
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -105,11 +117,17 @@ export default function Comites() {
             {sesiones.length} sesiones · {programadas} programadas · {sesiones.length - programadas} realizadas
           </p>
         </div>
-        <button onClick={fetchSesiones}
-          className="flex items-center gap-2 px-4 py-2 rounded-full text-sm text-niebla
-                     hover:text-hueso border border-niebla/20 hover:border-pulso/50 transition-all">
-          <RefreshCw size={14} /> Actualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={fetchSesiones}
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-sm text-niebla
+                       hover:text-hueso border border-niebla/20 hover:border-pulso/50 transition-all">
+            <RefreshCw size={14} /> Actualizar
+          </button>
+          <button onClick={() => setNuevo(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium text-tinta bg-pulso hover:bg-pulso-oscuro transition-all">
+            <CalendarPlus size={14} /> Nuevo comité
+          </button>
+        </div>
       </div>
 
       {/* Filtros */}
