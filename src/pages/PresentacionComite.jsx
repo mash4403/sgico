@@ -58,6 +58,11 @@ const normalizarBorrador = (bd) => {
   if (bd.ecog === NA) bd.ecog = ''
   if (bd.patologia_realizada === 'no') bd.patologia_realizada = ''
   if (bd.estudios_patologia === NA) bd.estudios_patologia = ''
+  if (!Array.isArray(bd.patologias_list)) {
+    bd.patologias_list = (bd.histologia || bd.estudios_patologia || bd.fecha_patologia)
+      ? [{ fecha: bd.fecha_patologia || '', histologia: bd.histologia || '', descripcion: bd.estudios_patologia || '' }]
+      : []
+  }
   if (bd.estudios_laboratorio === NA) bd.estudios_laboratorio = ''
   if (bd.estado_fisico === NA) bd.estado_fisico = ''
   if (bd.habito_tabaquico === NA) bd.habito_tabaquico = ''
@@ -224,6 +229,26 @@ const resumenImagenes = (list) => {
   return items.length ? items.join(' · ') : null
 }
 
+// Varias patologías → columnas de texto que leen Detalle, Mesa y Acta
+const patologiasValidas = (list) =>
+  (Array.isArray(list) ? list : []).filter(r => r.histologia || r.descripcion || r.fecha)
+const histologiasTexto = (list) => {
+  const unicas = [...new Set(patologiasValidas(list).map(r => r.histologia?.trim()).filter(Boolean))]
+  return unicas.length ? unicas.join(' / ').slice(0, 300) : null
+}
+const resumenPatologias = (list) => {
+  const filas = patologiasValidas(list)
+  if (!filas.length) return null
+  if (filas.length === 1) return filas[0].descripcion?.trim() || null
+  return filas.map((r, i) =>
+    `${i + 1}. ${[r.fecha, r.histologia].filter(Boolean).join(' · ')}${r.descripcion ? `: ${r.descripcion.trim()}` : ''}`
+  ).join('\n')
+}
+const fechaPatologiaReciente = (list) => {
+  const fechas = patologiasValidas(list).map(r => r.fecha).filter(Boolean).sort()
+  return fechas.length ? fechas[fechas.length - 1] : null
+}
+
 const toIntOrNull = (v) => {
   if (v === '' || v === null || v === undefined) return null
   const n = parseInt(v, 10)
@@ -251,6 +276,7 @@ const initialState = {
   cie10: '', diagnostico_descripcion: '',
   patologia_realizada: '', histologia: '',
   estudios_patologia: '', fecha_patologia: '', patologia_observaciones: '',
+  patologias_list: [],  // varias patologías: { fecha, histologia, descripcion }
   inmunohistoquimica_realizada: '', inmunohistoquimica: '',
   estadio_clinico: '', estadio_observaciones: '', tnm_t: '', tnm_n: '', tnm_m: '',
   fecha_diagnostico: '', biomarcadores: '', biomarcadores_list: [],
@@ -466,8 +492,12 @@ export default function PresentacionComite() {
         // si no se conoce el dato, la observación es obligatoria.
         req('patologia_realizada')
         if (data.patologia_realizada === 'si') {
-          req('histologia'); req('estudios_patologia', { allowNA: false })
-          noFuture('fecha_patologia')
+          const filas = data.patologias_list || []
+          if (!filas.length) errs.patologias_list = 'Agrega al menos una patología'
+          else if (filas.some(r => !r.histologia || !r.descripcion?.trim()))
+            errs.patologias_list = 'Cada patología necesita histología y descripción'
+          else if (filas.some(r => r.fecha && r.fecha > today))
+            errs.patologias_list = 'La fecha de la patología no puede ser futura'
         }
         if (data.patologia_realizada === 'sin_dato') req('patologia_observaciones')
         // Inmunohistoquímica (sí/no). Si sí, descripción requerida.
@@ -731,7 +761,7 @@ export default function PresentacionComite() {
                            : data.patologia_realizada === 'no' ? false : null,
         patologia_observaciones: data.patologia_realizada === 'sin_dato'
           ? clean(data.patologia_observaciones) : null,
-        histologia: data.patologia_realizada === 'si' ? clean(data.histologia) : null,
+        histologia: data.patologia_realizada === 'si' ? histologiasTexto(data.patologias_list) : null,
         // Inmunohistoquímica (sí/no) + descripción
         inmunohistoquimica_realizada: data.inmunohistoquimica_realizada === 'si' ? true
                                     : data.inmunohistoquimica_realizada === 'no' ? false : null,
@@ -758,9 +788,9 @@ export default function PresentacionComite() {
         estudios_imagenes: resumenImagenes(data.imagenes_list) || clean(data.estudios_imagenes),
         imagenes_estructuradas: (data.imagenes_list?.length ? data.imagenes_list : null),
         estudios_laboratorio: clean(data.estudios_laboratorio),
-        estudios_patologia: data.patologia_realizada === 'si' ? clean(data.estudios_patologia) : null,
+        estudios_patologia: data.patologia_realizada === 'si' ? resumenPatologias(data.patologias_list) : null,
         estudios_moleculares: clean(data.estudios_moleculares),
-        fecha_patologia: data.patologia_realizada === 'si' ? cleanDate(data.fecha_patologia) : null,
+        fecha_patologia: data.patologia_realizada === 'si' ? fechaPatologiaReciente(data.patologias_list) : null,
         fecha_moleculares: cleanDate(data.fecha_moleculares),
 
         tratamiento_quirurgico: cleanNoRecibido(data.tratamiento_quirurgico),
@@ -1391,6 +1421,59 @@ function HistologiaSearch({ value, onSelect, grupo, error }) {
   )
 }
 
+// Sub-formulario repetible de patologías: { fecha, histologia, descripcion }
+function PatologiasEditor({ value, onChange, grupo, error }) {
+  const rows = Array.isArray(value) ? value : []
+  const today = new Date().toISOString().split('T')[0]
+  const add = () => onChange([...rows, { fecha: '', histologia: '', descripcion: '' }])
+  const upd = (i, k, v) => onChange(rows.map((r, idx) => idx === i ? { ...r, [k]: v } : r))
+  const rm = (i) => onChange(rows.filter((_, idx) => idx !== i))
+  return (
+    <div className="md:col-span-2">
+      <div className="flex items-center justify-between mb-1.5">
+        <label className="text-sm font-semibold text-slate-800">
+          Patologías <span className="text-red-600">*</span>
+        </label>
+        <button type="button" onClick={add}
+          className="text-xs px-2.5 py-1 rounded-full font-semibold bg-blue-600 text-white hover:bg-blue-700">
+          + Agregar patología
+        </button>
+      </div>
+      <p className="text-xs text-slate-500 mb-2">
+        Registra cada estudio de patología (biopsia, pieza quirúrgica, recaída…). Histología tipo CAP, filtrada por el diagnóstico.
+      </p>
+      <div className="space-y-2">
+        {rows.map((r, i) => (
+          <div key={i} className="bg-slate-50 border border-slate-200 rounded-lg p-2 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr_auto] gap-2 items-end">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Fecha</label>
+                <Input type="date" value={r.fecha} max={today} onChange={v => upd(i, 'fecha', v)} />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Histología</label>
+                <HistologiaSearch value={r.histologia} grupo={grupo}
+                  error={error && !r.histologia} onSelect={v => upd(i, 'histologia', v)} />
+              </div>
+              <button type="button" onClick={() => rm(i)} title="Quitar" disabled={rows.length === 1}
+                className="h-[42px] w-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-500 mb-1">Descripción</label>
+              <TextArea value={r.descripcion} onChange={v => upd(i, 'descripcion', v)} rows={2}
+                error={error && !r.descripcion?.trim()}
+                placeholder="Ej. Biopsia: adenocarcinoma pulmonar moderadamente diferenciado" />
+            </div>
+          </div>
+        ))}
+      </div>
+      {error && <p className="text-xs text-red-600 mt-1 font-medium">{error}</p>}
+    </div>
+  )
+}
+
 // Sub-formulario repetible de imágenes diagnósticas: { estudio, fecha, hallazgo }
 function ImagenesEditor({ value, onChange }) {
   const rows = Array.isArray(value) ? value : []
@@ -1566,8 +1649,12 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
 
       {/* Patología */}
       <Field label="¿Se realizó patología?" required error={errors.patologia_realizada}>
-        <Select value={data.patologia_realizada} onChange={v => update('patologia_realizada', v)}
-          options={PATOLOGIA_OPTS} error={errors.patologia_realizada} />
+        <Select value={data.patologia_realizada} error={errors.patologia_realizada} options={PATOLOGIA_OPTS}
+          onChange={v => {
+            update('patologia_realizada', v)
+            if (v === 'si' && !data.patologias_list?.length)
+              update('patologias_list', [{ fecha: '', histologia: '', descripcion: '' }])
+          }} />
       </Field>
       <div />
       {data.patologia_realizada === 'sin_dato' && (
@@ -1579,25 +1666,9 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
         </Field>
       )}
       {conPatologia && (
-        <>
-          <Field label="Histología" required full error={errors.histologia}
-            hint="Selección tipo CAP, filtrada por el diagnóstico. Puedes buscar por nombre o sinónimo.">
-            <HistologiaSearch value={data.histologia} error={errors.histologia}
-              grupo={CIE10_INDEX[data.cie10]?.subgrupo}
-              onSelect={v => update('histologia', v)} />
-          </Field>
-          <Field label="Descripción de la patología" required full error={errors.estudios_patologia}>
-            <div className="mb-2 max-w-[240px]">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Fecha de la patología</label>
-              <Input type="date" value={data.fecha_patologia}
-                max={new Date().toISOString().split('T')[0]}
-                onChange={v => update('fecha_patologia', v)} error={errors.fecha_patologia} />
-            </div>
-            <TextArea value={data.estudios_patologia} onChange={v => update('estudios_patologia', v)}
-              placeholder="Ej. Biopsia: adenocarcinoma pulmonar moderadamente diferenciado"
-              error={errors.estudios_patologia} />
-          </Field>
-        </>
+        <PatologiasEditor value={data.patologias_list} error={errors.patologias_list}
+          grupo={CIE10_INDEX[data.cie10]?.subgrupo}
+          onChange={v => update('patologias_list', v)} />
       )}
 
       {/* Inmunohistoquímica */}
