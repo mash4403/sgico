@@ -368,7 +368,7 @@ export default function PresentacionComite() {
       supabase.from('medicos').select('id, nombre, especialidad').eq('activo', true).order('nombre'),
       supabase.from('gestores').select('id, nombre').eq('activo', true).order('nombre'),
       supabase.from('protocolos')
-        .select('id, nombre, estudio_pivotal, pfs_esperado_meses, os_esperado_meses')
+        .select('id, nombre, estudio_pivotal, pfs_esperado_meses, os_esperado_meses, tipo_evidencia, evidencia_link')
         .eq('activo', true).order('nombre'),
     ])
     setSedes(s.data || [])
@@ -1896,6 +1896,8 @@ function StepEvidencia({ data, update, errors, toggleNA, protocolos }) {
     const p = protocolos.find(x => String(x.id) === String(id))
     if (p) {
       if (p.estudio_pivotal) update('evidencia_referencia', p.estudio_pivotal)
+      if (p.tipo_evidencia)  update('evidencia_tipo', p.tipo_evidencia)
+      if (p.evidencia_link)  update('evidencia_link', p.evidencia_link)
       if (p.pfs_esperado_meses != null) update('pfs_esperado_estudio', p.pfs_esperado_meses)
       if (p.os_esperado_meses != null)  update('os_esperado_estudio', p.os_esperado_meses)
     }
@@ -1907,7 +1909,7 @@ function StepEvidencia({ data, update, errors, toggleNA, protocolos }) {
         naLabel={SIN_PROPUESTA} naValue={sinPropuesta} onToggleNA={() => toggleNA('protocolo_id')}
         hint={sinPropuesta
           ? 'Sin propuesta: el estudio, PFS y OS esperados dejan de ser obligatorios.'
-          : 'Al seleccionar un protocolo se autocompletan PFS y OS esperados.'}>
+          : 'Al seleccionar un protocolo se autocompletan el estudio, el tipo de estudio, el enlace y el PFS/OS esperados.'}>
         <Select value={data.protocolo_id} onChange={onProtocoloChange}
           options={protocolos.map(p => ({
             value: p.id,
@@ -1921,12 +1923,16 @@ function StepEvidencia({ data, update, errors, toggleNA, protocolos }) {
       <Field label="Tipo de evidencia">
         <Select value={data.evidencia_tipo} onChange={v => update('evidencia_tipo', v)}
           options={[
-            { value: 'fase_3',     label: 'Ensayo fase III' },
-            { value: 'fase_2',     label: 'Ensayo fase II' },
-            { value: 'metanalisis',label: 'Metaanálisis' },
-            { value: 'guia',       label: 'Guía de práctica clínica' },
-            { value: 'consenso',   label: 'Consenso de expertos' },
-            { value: 'real_world', label: 'Evidencia del mundo real' },
+            { value: 'fase_3',               label: 'Ensayo fase III' },
+            { value: 'fase_2',               label: 'Ensayo fase II' },
+            { value: 'fase_1',               label: 'Ensayo fase I' },
+            { value: 'metanalisis',          label: 'Metaanálisis' },
+            { value: 'revision_sistematica', label: 'Revisión sistemática' },
+            { value: 'guia',                 label: 'Guía de práctica clínica' },
+            { value: 'consenso',             label: 'Consenso de expertos' },
+            { value: 'real_world',           label: 'Evidencia del mundo real (RWE)' },
+            { value: 'reporte_caso',         label: 'Reporte de caso' },
+            { value: 'otro',                 label: 'Otro' },
           ]} />
       </Field>
       <Field label="Enlace al estudio (DOI / PubMed)">

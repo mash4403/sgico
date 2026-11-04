@@ -52,7 +52,9 @@ const ALCOHOL_LABELS = {
 const EVIDENCIA_LABELS = {
   fase_3: 'Ensayo fase III', fase_2: 'Ensayo fase II',
   metanalisis: 'Metaanálisis', guia: 'Guía de práctica clínica',
-  consenso: 'Consenso de expertos', real_world: 'Evidencia del mundo real',
+  consenso: 'Consenso de expertos', real_world: 'Evidencia del mundo real (RWE)',
+  fase_1: 'Ensayo fase I', revision_sistematica: 'Revisión sistemática',
+  reporte_caso: 'Reporte de caso', otro: 'Otro',
 }
 const GENERO_LABELS = { M: 'Masculino', F: 'Femenino', I: 'Indeterminado' }
 
