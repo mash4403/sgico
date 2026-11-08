@@ -4,6 +4,14 @@ import { formatDate, formatCOP } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import { ClipboardCheck, AlertTriangle, CheckCircle, Clock, XCircle, RefreshCw, TrendingDown, Activity, ChevronDown, ChevronRight, User, Search } from 'lucide-react'
 
+const ECOG_OPTS = [
+  { value: '0', label: '0 — Asintomático, totalmente activo' },
+  { value: '1', label: '1 — Síntomas leves, ambulatorio' },
+  { value: '2', label: '2 — Encamado <50% del día' },
+  { value: '3', label: '3 — Encamado >50% del día' },
+  { value: '4', label: '4 — Postrado, no se autocuida' },
+]
+
 const ESTADOS_CLINICOS = [
   { value: 'sin_iniciar', label: 'Sin iniciar tratamiento' },
   { value: 'en_tratamiento', label: 'En tratamiento activo' },
@@ -91,7 +99,7 @@ export default function Seguimientos() {
       .select(`
         *,
         casos_comite(
-          id, decision, molecula_aprobada, estado, fecha_presentacion, costo_post, costo_previo, frecuencia_seguimiento,
+          id, decision, molecula_aprobada, estado, fecha_presentacion, costo_post, costo_previo, frecuencia_seguimiento, ecog, eva,
           pacientes(nombre, documento),
           medicos(nombre),
           diagnosticos(cie10, descripcion, estadio),
@@ -130,6 +138,7 @@ export default function Seguimientos() {
       pfs_alcanzado: false, fecha_progresion: '', sitio_progresion: '',
       os_alcanzado: false, fecha_muerte: '', causa_muerte: '',
       toxicidad_grado_max: '', toxicidad_descripcion: '',
+      ecog: '', eva: '',
       cambio_dosis: false, suspension_tratamiento: false,
       costo_periodo: '', costo_acumulado_tratamiento: '',
       estado_vital: 'vivo', fecha_ultimo_contacto: new Date().toISOString().split('T')[0],
@@ -159,6 +168,11 @@ export default function Seguimientos() {
         return
       }
     }
+    // Calidad de vida: ECOG y EVA son obligatorios si el paciente está vivo
+    if (seg.tipo !== 'post_comite' && (f.estado_vital || 'vivo') === 'vivo' && (f.ecog === '' || f.eva === '')) {
+      toast.error('Registra el ECOG y el dolor (EVA) del paciente en este control')
+      return
+    }
 
     try {
       const updateData = {
@@ -184,6 +198,8 @@ export default function Seguimientos() {
         updateData.causa_muerte = f.causa_muerte || null
         updateData.toxicidad_grado_max = f.toxicidad_grado_max ? parseInt(f.toxicidad_grado_max) : null
         updateData.toxicidad_descripcion = f.toxicidad_descripcion || null
+        updateData.ecog = f.ecog === '' || f.ecog == null ? null : parseInt(f.ecog)
+        updateData.eva = f.eva === '' || f.eva == null ? null : parseInt(f.eva)
         updateData.cambio_dosis = f.cambio_dosis || false
         updateData.suspension_tratamiento = f.suspension_tratamiento || false
         updateData.costo_periodo = parseFloat(f.costo_periodo) || 0
@@ -531,6 +547,33 @@ export default function Seguimientos() {
                           </select>
                         </div>
 
+                        {/* Calidad de vida: se compara con el ingreso al comité */}
+                        <div className="col-span-3 mt-2">
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Calidad de vida</p>
+                          <p className="text-xs text-gray-500">
+                            Al ingreso al comité: ECOG {s.casos_comite?.ecog ?? '—'} · Dolor EVA {s.casos_comite?.eva ?? '—'}
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">ECOG actual {(formData[s.id]?.estado_vital || 'vivo') === 'vivo' && <span className="text-red-500">*</span>}</label>
+                          <select value={formData[s.id]?.ecog ?? ''}
+                            onChange={e => updateField(s.id, 'ecog', e.target.value)}>
+                            <option value="">Seleccionar...</option>
+                            {ECOG_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">Dolor EVA actual (0-10) {(formData[s.id]?.estado_vital || 'vivo') === 'vivo' && <span className="text-red-500">*</span>}</label>
+                          <select value={formData[s.id]?.eva ?? ''}
+                            onChange={e => updateField(s.id, 'eva', e.target.value)}>
+                            <option value="">Seleccionar...</option>
+                            {Array.from({ length: 11 }, (_, i) => (
+                              <option key={i} value={String(i)}>{i}{i === 0 ? ' — sin dolor' : i === 10 ? ' — máximo dolor' : ''}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div />
+
                         {/* PFS */}
                         <div className="col-span-3 mt-2">
                           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Supervivencia libre de progresión (PFS)</p>
@@ -676,6 +719,7 @@ export default function Seguimientos() {
                             <p>PFS: <span className="text-gray-300">{s.pfs_alcanzado ? `Sí — ${formatDate(s.fecha_progresion)}` : 'No alcanzado'}</span></p>
                             <p>Vital: <span className="text-gray-300">{s.estado_vital}</span></p>
                             <p>Costo acumulado: <span className="text-gray-300 font-mono">{formatCOP(s.costo_acumulado_tratamiento)}</span></p>
+                            {(s.ecog != null || s.eva != null) && <p>ECOG / EVA: <span className="text-gray-300">{s.ecog ?? '—'} / {s.eva ?? '—'}</span></p>}
                             {s.toxicidad_grado_max && <p>Toxicidad: <span className="text-gray-300">G{s.toxicidad_grado_max} — {s.toxicidad_descripcion}</span></p>}
                           </>
                         )}

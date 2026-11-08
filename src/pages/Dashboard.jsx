@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { formatCOP } from '@/lib/utils'
 import LogoInoos from '../components/LogoInoos'
+import { valorPorCaso, valorPropuestoVsDefinido, impactoSobrevida, impactoCalidadVida } from '../lib/indicadoresImpacto'
 import {
   AlertTriangle, Users, Clock, TrendingDown, Shield,
   Activity, Heart, XCircle, CalendarDays, ClipboardList, RefreshCw, Stethoscope, Target, TrendingUp, ChevronDown, ChevronUp
@@ -121,9 +122,10 @@ function AhorroDetalle({ casos, onCaso }) {
   const [componente, setComponente] = useState('') // '' | 'rechazo' | 'ajuste'
   const [mes, setMes] = useState('')
 
-  const filas = casos.map(c => ({ ...c, ahorro: ahorroCaso(c), mes: mesDe(c),
+  const filas = casos.map(c => ({ ...c, ahorro: ahorroCaso(c), mes: mesDe(c), valor: valorPorCaso(c),
     componente: c.decision === 'rechazado' ? 'rechazo' : 'ajuste' }))
   const suma = (xs) => xs.reduce((n, c) => n + c.ahorro, 0)
+  const sumaTx = (xs) => xs.reduce((n, c) => n + (c.valor?.difTx || 0), 0)
 
   const rechazos = filas.filter(c => c.componente === 'rechazo')
   const ajustes = filas.filter(c => c.componente === 'ajuste')
@@ -187,12 +189,13 @@ function AhorroDetalle({ casos, onCaso }) {
               <th className="text-left font-medium py-2 pr-3">Decisión</th>
               <th className="text-right font-medium py-2 px-2">Propuesto</th>
               <th className="text-right font-medium py-2 px-2">Aprobado / previo</th>
-              <th className="text-right font-medium py-2 pl-2">Ahorro</th>
+              <th className="text-right font-medium py-2 px-2">Ahorro</th>
+              <th className="text-right font-medium py-2 pl-2" title="Costo por ciclo × ciclos esperados según el PFS del estudio">Diferencia tratamiento</th>
             </tr>
           </thead>
           <tbody>
             {visibles.length === 0 ? (
-              <tr><td colSpan={7} className="py-4 text-center text-niebla-oscura">Sin casos para este filtro</td></tr>
+              <tr><td colSpan={8} className="py-4 text-center text-niebla-oscura">Sin casos para este filtro</td></tr>
             ) : visibles.map(c => (
               <tr key={c.id} onClick={() => onCaso(c.id)} title="Ver caso"
                   className="border-t border-niebla/10 cursor-pointer hover:bg-hueso/5 transition-colors">
@@ -207,8 +210,14 @@ function AhorroDetalle({ casos, onCaso }) {
                   {formatCOP(Number(c.decision === 'rechazado' ? (c.costo_previo || 0) : (c.costo_molecula_aprobada ?? c.costo_estimado ?? 0)))}
                   <span className="block text-[10px] text-niebla-oscura">{c.decision === 'rechazado' ? 'previo' : 'aprobado'}</span>
                 </td>
-                <td className="py-2 pl-2 text-right font-mono font-semibold" style={{ color: colorValor(c.ahorro) }}>
+                <td className="py-2 px-2 text-right font-mono font-semibold" style={{ color: colorValor(c.ahorro) }}>
                   {c.ahorro < 0 ? '−' : ''}{formatCOP(Math.abs(c.ahorro))}
+                </td>
+                <td className="py-2 pl-2 text-right font-mono" style={{ color: colorValor(c.valor?.difTx ?? 0) }}>
+                  {c.valor?.difTx == null ? <span className="text-niebla-oscura">—</span> : <>
+                    {c.valor.difTx < 0 ? '−' : ''}{formatCOP(Math.abs(c.valor.difTx))}
+                    <span className="block text-[10px] text-niebla-oscura">{c.valor.ciclos} ciclos</span>
+                  </>}
                 </td>
               </tr>
             ))}
@@ -219,13 +228,160 @@ function AhorroDetalle({ casos, onCaso }) {
                 <td colSpan={6} className="py-2 pr-3 text-right text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em]">
                   Subtotal ({visibles.length})
                 </td>
-                <td className="py-2 pl-2 text-right font-mono font-bold" style={{ color: colorValor(suma(visibles)) }}>
+                <td className="py-2 px-2 text-right font-mono font-bold" style={{ color: colorValor(suma(visibles)) }}>
                   {suma(visibles) < 0 ? '−' : ''}{formatCOP(Math.abs(suma(visibles)))}
+                </td>
+                <td className="py-2 pl-2 text-right font-mono font-bold" style={{ color: colorValor(sumaTx(visibles)) }}>
+                  {sumaTx(visibles) < 0 ? '−' : ''}{formatCOP(Math.abs(sumaTx(visibles)))}
                 </td>
               </tr>
             </tfoot>
           )}
         </table>
+      </div>
+    </div>
+  )
+}
+
+const fmtPct = (v) => (v == null ? '—' : `${Math.round(v)}%`)
+const fmtMeses = (v) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)} m`)
+const signoCOP = (v) => `${v < 0 ? '−' : ''}${formatCOP(Math.abs(v))}`
+
+function Dato({ label, value, sub, color }) {
+  return (
+    <div>
+      <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em]">{label}</p>
+      <p className="text-lg font-display font-bold mt-0.5" style={color ? { color } : undefined}>{value}</p>
+      {sub && <p className="text-[11px] text-niebla-oscura">{sub}</p>}
+    </div>
+  )
+}
+
+// Barra mejora / igual / empeora
+function BarraCambio({ titulo, d }) {
+  if (!d.n) return (
+    <div>
+      <p className="text-sm text-hueso mb-1">{titulo}</p>
+      <p className="text-xs text-niebla-oscura">Aún sin controles con este dato</p>
+    </div>
+  )
+  const seg = [
+    { k: 'pMejora', label: 'Mejora', color: 'var(--ok)' },
+    { k: 'pIgual', label: 'Estable', color: 'var(--line-strong)' },
+    { k: 'pEmpeora', label: 'Empeora', color: 'var(--bad)' },
+  ]
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <p className="text-sm text-hueso">{titulo}</p>
+        <p className="text-[11px] text-niebla-oscura">{d.n} pacientes</p>
+      </div>
+      <div className="flex h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--sunken)' }}>
+        {seg.map(x => d[x.k] > 0 && <div key={x.k} style={{ width: `${d[x.k]}%`, background: x.color }} title={`${x.label}: ${fmtPct(d[x.k])}`} />)}
+      </div>
+      <div className="flex gap-4 mt-1.5 text-[11px]">
+        {seg.map(x => (
+          <span key={x.k} className="flex items-center gap-1 text-niebla">
+            <span className="w-2 h-2 rounded-full" style={{ background: x.color }} /> {x.label} {fmtPct(d[x.k])}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ImpactoDecisiones({ casosValor, desenlaces, casosBase, controles }) {
+  const [grupo, setGrupo] = useState('total')
+  const valor = valorPropuestoVsDefinido(casosValor)
+  const porId = Object.fromEntries(casosBase.map(c => [c.id, c]))
+  const sv = impactoSobrevida(desenlaces, porId)[grupo]
+  const cv = impactoCalidadVida(casosBase, controles, desenlaces)
+  const colorDif = (v) => (v > 0 ? C.pulso : v < 0 ? C.peligro : undefined)
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 pt-2">
+        <Target size={16} style={{ color: 'var(--marca)' }} />
+        <h2 className="!text-lg font-display font-semibold text-hueso">Impacto de las decisiones del comité</h2>
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+
+        {/* 1. Valor propuesto vs definido */}
+        <Card>
+          <Eyebrow icon={TrendingDown}>Valor propuesto en junta vs. definido</Eyebrow>
+          {valor.n === 0 ? <p className="text-sm text-niebla-oscura">Aún no hay casos decididos con costo.</p> : <>
+            <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em] mb-2">Tratamiento completo</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Dato label="Propuesto" value={formatCOP(valor.propTx)} />
+              <Dato label="Definido" value={formatCOP(valor.defTx)} />
+            </div>
+            <div className="mt-3 rounded-xl px-3 py-2.5 border border-niebla/15">
+              <Dato label={valor.difTx >= 0 ? 'Diferencia (ahorro)' : 'Diferencia (sobrecosto)'}
+                value={signoCOP(valor.difTx)} color={colorDif(valor.difTx)}
+                sub={`${fmtPct(valor.pctTx == null ? null : Math.abs(valor.pctTx))} del valor propuesto · ${valor.nConProyeccion} casos con proyección`} />
+            </div>
+            <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em] mt-4 mb-2">Por ciclo</p>
+            <div className="grid grid-cols-3 gap-2">
+              <Dato label="Propuesto" value={formatCOP(valor.propCiclo)} />
+              <Dato label="Definido" value={formatCOP(valor.defCiclo)} />
+              <Dato label="Diferencia" value={signoCOP(valor.difCiclo)} color={colorDif(valor.difCiclo)} />
+            </div>
+            <p className="text-[11px] text-niebla-oscura mt-3 leading-relaxed">
+              Tratamiento completo = costo por ciclo × ciclos esperados según el PFS del estudio. En los rechazos, el valor definido es el tratamiento que el paciente continúa.
+            </p>
+          </>}
+        </Card>
+
+        {/* 2. Sobrevida */}
+        <Card>
+          <Eyebrow icon={Heart}>Impacto en sobrevida</Eyebrow>
+          {/* Filtro por decisión: control segmentado en su propia fila */}
+          <div className="flex w-full mb-4 rounded-lg p-0.5" style={{ background: 'var(--sunken)' }}>
+            {[['total', 'Todos'], ['aprobado', 'Aprobados'], ['modificado', 'Modificados']].map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setGrupo(k)}
+                className="flex-1 whitespace-nowrap rounded-md !px-2 !py-1 !text-xs font-medium transition-colors"
+                style={grupo === k
+                  ? { background: 'var(--surface)', color: 'var(--marca)', boxShadow: '0 1px 2px rgba(0,0,0,.08)' }
+                  : { background: 'transparent', color: 'var(--muted)' }}>
+                {l}
+              </button>
+            ))}
+          </div>
+          {sv.n === 0 ? <p className="text-sm text-niebla-oscura">Aún no hay seguimientos con fecha de inicio de tratamiento.</p> : <>
+            <div className="grid grid-cols-2 gap-3">
+              <Dato label="Vivos a 6 meses" value={fmtPct(sv.vivos6.pct)} sub={`${sv.vivos6.n} evaluables`} />
+              <Dato label="Vivos a 12 meses" value={fmtPct(sv.vivos12.pct)} sub={`${sv.vivos12.n} evaluables`} />
+              <Dato label="Sin progresión 6 m" value={fmtPct(sv.sinProg6.pct)} sub={`${sv.sinProg6.n} evaluables`} />
+              <Dato label="Sin progresión 12 m" value={fmtPct(sv.sinProg12.pct)} sub={`${sv.sinProg12.n} evaluables`} />
+            </div>
+            <div className="mt-3 rounded-xl px-3 py-2.5 border border-niebla/15">
+              <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em]">PFS ganado vs. tratamiento anterior</p>
+              {sv.nGanancia === 0 ? <p className="text-xs text-niebla-oscura mt-1">Sin pacientes con PFS del tratamiento anterior registrado.</p> : (
+                <div className="grid grid-cols-2 gap-3 mt-1">
+                  <Dato label="Esperado" value={fmtMeses(sv.gananciaEsperada)} />
+                  <Dato label="Real a la fecha" value={fmtMeses(sv.gananciaReal)} color={colorDif(sv.gananciaReal)} sub={`${sv.nGanancia} pacientes`} />
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] text-niebla-oscura mt-3 leading-relaxed">
+              Desde el inicio del tratamiento aprobado. Evaluables: pacientes que ya cumplieron el plazo o tuvieron el evento antes. Los rechazos no tienen seguimiento, por eso no se comparan.
+            </p>
+          </>}
+        </Card>
+
+        {/* 3. Calidad de vida */}
+        <Card>
+          <Eyebrow icon={Activity}>Impacto en calidad de vida</Eyebrow>
+          <p className="text-xs text-niebla mb-3">Último control frente al ingreso al comité</p>
+          <div className="space-y-4">
+            <BarraCambio titulo="Capacidad funcional (ECOG)" d={cv.ecog} />
+            <BarraCambio titulo="Dolor (EVA, cambio ≥ 2 puntos)" d={cv.eva} />
+          </div>
+          <div className="mt-4 rounded-xl px-3 py-2.5 border border-niebla/15">
+            <Dato label="Toxicidad grave (grado ≥ 3 o suspensión)" value={fmtPct(cv.toxicidad.pct)}
+              color={cv.toxicidad.pct > 0 ? C.peligro : undefined}
+              sub={cv.toxicidad.n ? `${cv.toxicidad.graves} de ${cv.toxicidad.n} pacientes con control` : 'Aún sin controles'} />
+          </div>
+        </Card>
       </div>
     </div>
   )
@@ -287,6 +443,8 @@ export default function Dashboard() {
   const [verDetalleAhorro, setVerDetalleAhorro] = useState(false)
   const [loading, setLoading] = useState(true)
   const [agenda, setAgenda] = useState({ proximo: null, porPresentar: 0, vencidos: 0 })
+  const [casosBase, setCasosBase] = useState([])
+  const [controlesCV, setControlesCV] = useState([])
 
   const fetchData = async () => {
     setLoading(true)
@@ -309,12 +467,12 @@ export default function Dashboard() {
         supabase.from('vw_kpi_impacto_comite_mensual').select('*').limit(12),
         supabase.from('vw_kri_costo_efectividad').select('*').limit(10),
         supabase.from('vw_desenlace_caso')
-          .select('caso_id, paciente_nombre, protocolo, decision, mejor_respuesta, respondedor, pfs_real_meses, pfs_esperado, os_real_meses, os_esperado, costo_real_acumulado')
+          .select('caso_id, paciente_nombre, protocolo, decision, mejor_respuesta, respondedor, pfs_real_meses, pfs_esperado, os_real_meses, os_esperado, costo_real_acumulado, evento_pfs, evento_os, n_eval_realizadas, toxicidad_max, suspension_toxicidad')
           .in('decision', ['aprobado', 'modificado'])
           .order('caso_id'),
         // Desglose del ahorro: mismos casos que vw_kpi_impacto_comite_mensual
         supabase.from('casos_comite')
-          .select('id, decision, fecha_presentacion, fecha_solicitud, costo_estimado, costo_molecula_aprobada, costo_previo, molecula_propuesta, molecula_aprobada, pacientes(nombre, documento), protocolos(nombre)')
+          .select('id, decision, fecha_presentacion, fecha_solicitud, costo_estimado, costo_molecula_aprobada, costo_previo, molecula_propuesta, molecula_aprobada, proyeccion_costos, pacientes(nombre, documento), protocolos(nombre)')
           .not('costo_estimado', 'is', null)
           .in('decision', ['aprobado', 'modificado', 'rechazado']),
       ])
@@ -330,6 +488,14 @@ export default function Dashboard() {
           .in('estado', ['pendiente', 'vencido']).lt('fecha_programada', hoyISO),
       ])
       setAgenda({ proximo: prox.data || null, porPresentar: porPres.count || 0, vencidos: venc.count || 0 })
+
+      // Indicadores de impacto: datos del ingreso (ECOG, EVA, PFS previo) y controles con calidad de vida
+      const [base, ctrl] = await Promise.all([
+        supabase.from('casos_comite').select('id, decision, ecog, eva, proyeccion_costos').in('decision', ['aprobado', 'modificado']),
+        supabase.from('seguimientos').select('caso_id, fecha_realizada, ecog, eva').eq('estado', 'realizado'),
+      ])
+      setCasosBase(base.data || [])
+      setControlesCV(ctrl.error ? [] : (ctrl.data || []))  // sin la migración 021 no hay ECOG/EVA en controles
 
       setStats({ ...(dashData || {}), seguimientos_pendientes: pendCount || 0 })
       setMensual(monthData || [])
@@ -530,6 +696,10 @@ export default function Dashboard() {
           {verDetalleAhorro && <AhorroDetalle casos={casosAhorro} onCaso={id => navigate(`/casos/${id}`)} />}
         </Card>
       )}
+
+      {/* ── Impacto de las decisiones del comité (indicadores solicitados por el cliente) ── */}
+      <ImpactoDecisiones casosValor={casosAhorro} desenlaces={pacientesDes}
+        casosBase={casosBase} controles={controlesCV} />
 
       {/* ── MVP: worklist de riesgo costo/efectividad ── */}
       <Card>
