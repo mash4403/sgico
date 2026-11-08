@@ -6,6 +6,7 @@ import {
   ClipboardPlus, LogOut, CalendarClock, Users, Landmark, CalendarPlus
 } from 'lucide-react'
 import ElCircuito from './ElCircuito'
+import LogoInoos from './LogoInoos'
 import NuevoComiteModal from './NuevoComiteModal'
 
 const navItems = [
@@ -33,12 +34,10 @@ export default function Layout({ children, session }) {
       <aside className="no-print w-60 border-r border-niebla/15 flex flex-col bg-tinta-2">
         {/* Logo */}
         <div className="p-5 border-b border-niebla/15">
-          <div className="flex items-center gap-3">
-            <ElCircuito size={34} />
-            <div>
-              <div className="font-display font-bold text-sm tracking-tight text-hueso">SGICO</div>
-              <div className="text-[10px] font-mono text-niebla-oscura uppercase tracking-[0.2em]">Comité Oncológico</div>
-            </div>
+          <LogoInoos className="w-full max-w-[180px] h-auto" />
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="font-display font-bold text-sm tracking-tight text-hueso">SGICO</span>
+            <span className="text-[10px] font-mono text-niebla-oscura uppercase tracking-[0.18em]">Comité Oncológico</span>
           </div>
         </div>
 
@@ -75,7 +74,9 @@ export default function Layout({ children, session }) {
             <LogOut size={16} />
             Cerrar sesión
           </button>
-          <div className="mt-4 text-[10px] text-niebla-oscura">
+          <div className="mt-4 flex items-center gap-1.5 text-[10px] text-niebla-oscura">
+            <span>by</span>
+            <ElCircuito size={14} />
             <span className="nv" style={{ fontSize: '0.75rem' }}>Nodo<i>via</i></span>
           </div>
         </div>

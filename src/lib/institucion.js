@@ -3,7 +3,7 @@
 // Edita estos valores para la institución cliente.
 // ============================================================
 export const INSTITUCION = {
-  nombre: 'Institución de Salud',
+  nombre: 'INOOS · Instituto Oncológico Ospedale S.A.S.',
   subtitulo: 'SGICO · Comité Oncológico Multidisciplinario',
   codigo_formato: 'FOR-ONC-014',
   version_formato: '1',

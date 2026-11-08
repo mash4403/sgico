@@ -11,30 +11,33 @@
 :root {
   --paper:#F4F4F8; --surface:#FFFFFF; --sunken:#ECEBF3; --ink:#1C1B2E; --muted:#5E5C74;
   --line:#DCDAE7; --line-strong:#BFBCD3;
-  --accent:#3A2F86; --accent-soft:#EAE7F8; --on-accent:#FFFFFF;      /* hematoxilina */
+  --accent:#8258a0; --accent-soft:#F1EAF6; --on-accent:#FFFFFF;      /* morado INOOS */
   --accent-2:#B4305F; --accent-2-soft:#FBE8EF;                        /* eosina */
   --ok:#1D704E; --ok-soft:#E1F2E9; --warn:#865600; --warn-soft:#FFF1CF;
   --bad:#AE2A21; --bad-soft:#FCE5E2; --info:#295A85; --info-soft:#E4EDF6;
   --f-display:'Newsreader', Georgia, 'Times New Roman', serif;
   --f-body:'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --f-mono:'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --marca:#8258a0;                                                   /* INOOS */
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper:#13121C; --surface:#1C1B28; --sunken:#252335; --ink:#ECEBF5; --muted:#A4A2BA;
     --line:#33314A; --line-strong:#4A4766;
-    --accent:#AFA2FF; --accent-soft:#2A2552; --on-accent:#15122E;
+    --accent:#C7A9E0; --accent-soft:#2E2240; --on-accent:#1E1428;
     --accent-2:#FF86B2; --accent-2-soft:#3C1A2A;
     --ok:#62D3A0; --ok-soft:#14342A; --warn:#F1BA52; --warn-soft:#382A0D;
     --bad:#FF8E84; --bad-soft:#3D1815; --info:#8EC2F0; --info-soft:#16293B;
+    --marca:#C7A9E0;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
+  --marca:#C7A9E0;
   --paper:#13121C; --surface:#1C1B28; --sunken:#252335; --ink:#ECEBF5; --muted:#A4A2BA;
   --line:#33314A; --line-strong:#4A4766;
-  --accent:#AFA2FF; --accent-soft:#2A2552; --on-accent:#15122E;
+  --accent:#C7A9E0; --accent-soft:#2E2240; --on-accent:#1E1428;
   --accent-2:#FF86B2; --accent-2-soft:#3C1A2A;
   --ok:#62D3A0; --ok-soft:#14342A; --warn:#F1BA52; --warn-soft:#382A0D;
   --bad:#FF8E84; --bad-soft:#3D1815; --info:#8EC2F0; --info-soft:#16293B;
@@ -72,6 +75,7 @@ h1[class], h1 { font-size: clamp(28px, 3.4vw, 40px); letter-spacing: -0.01em; fo
 h2:not(.uppercase)[class], h2:not(.uppercase) { font-size: 22px; font-weight: 600; }
 h3:not(.uppercase)[class], h3:not(.uppercase) { font-size: 18px; font-weight: 600; }
 h1 + p { margin-top: 6px; }
+.eyebrow + h1 { margin-top: 8px; }
 /* Títulos que estaban sobre el fondo oscuro con text-white */
 :is(h1, h2, h3).text-white { color: var(--ink); }
 /* Marca del encabezado lateral y del ingreso: tamaño propio, no de título de página */
@@ -116,8 +120,14 @@ div.text-xl.font-display.font-bold {
 }
 
 /* ---------- Wordmark ---------- */
-.nv { font-family: var(--f-display); font-weight: 600; color: var(--ink); }
-.nv i { font-style: normal; color: var(--accent); }
+/* Nodovia conserva su propia paleta (petróleo), sin heredar el morado del cliente */
+:root { --nv-nodo:#0E4C57; --nv-via:#156573; --nv-via-conocimiento:#8AA1A7; --nv-nodo-conocimiento:#0E4C57; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --nv-nodo:#D5E2E4; --nv-via:#35C9B6; --nv-via-conocimiento:#6E8A90; --nv-nodo-conocimiento:#9DB4B8; }
+}
+:root[data-theme="dark"] { --nv-nodo:#D5E2E4; --nv-via:#35C9B6; --nv-via-conocimiento:#6E8A90; --nv-nodo-conocimiento:#9DB4B8; }
+.nv { font-family: var(--f-display); font-weight: 600; color: var(--nv-nodo); }
+.nv i { font-style: normal; color: var(--nv-via); }
 
 /* ---------- Scroll ---------- */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -524,7 +534,7 @@ svg:not([viewBox="0 0 120 120"]) [fill="#6E8A90"], svg:not([viewBox="0 0 120 120
   html, body { background: #ffffff !important; color: #1C1B2E; }
   :root {
     --paper:#FFFFFF; --surface:#FFFFFF; --sunken:#F4F4F8; --ink:#1C1B2E; --muted:#5E5C74;
-    --line:#DCDAE7; --line-strong:#BFBCD3; --accent:#3A2F86; --accent-soft:#EAE7F8; --on-accent:#FFFFFF;
+    --line:#DCDAE7; --line-strong:#BFBCD3; --accent:#8258a0; --accent-soft:#F1EAF6; --on-accent:#FFFFFF;
   }
   /* Cualquier elemento marcado como no imprimible desaparece */
   .no-print, [data-print="hide"] { display: none !important; }

@@ -1,10 +1,11 @@
 // NODOVIA — símbolo "El Circuito" (geometría canónica del manual v1.0).
 // NO redibujar: rombo 88×72 en viewBox 120×120, ciclo cerrado, sin líneas internas.
-// Variante 'oscuro' = sobre fondo oscuro; 'claro' = sobre fondo claro (vías #8AA1A7 y #0E4C57).
-export default function ElCircuito({ size = 34, variante = 'oscuro' }) {
-  const viaConocimiento = variante === 'claro' ? '#8AA1A7' : '#6E8A90'
+// Variante 'oscuro' = sobre fondo oscuro; 'claro' = sobre fondo claro (vías #8AA1A7 y #0E4C57);
+// 'auto' = sigue el tema de la app (variables --nv-* en index.css).
+export default function ElCircuito({ size = 34, variante = 'auto' }) {
+  const viaConocimiento = variante === 'auto' ? 'var(--nv-via-conocimiento)' : variante === 'claro' ? '#8AA1A7' : '#6E8A90'
   const viaIA = '#156573'
-  const nodoConocimiento = variante === 'claro' ? '#0E4C57' : '#9DB4B8'
+  const nodoConocimiento = variante === 'auto' ? 'var(--nv-nodo-conocimiento)' : variante === 'claro' ? '#0E4C57' : '#9DB4B8'
   return (
     <svg width={size} height={size} viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <g fill="none" strokeWidth="6" strokeLinecap="round">

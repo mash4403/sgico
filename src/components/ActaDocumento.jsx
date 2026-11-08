@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { INSTITUCION } from '../lib/institucion'
 import { formatDate, formatDateTime } from '../lib/utils'
-import ElCircuito from './ElCircuito'
+import LogoInoos from './LogoInoos'
 
 const GENERO_LABEL = { M: 'Masculino', F: 'Femenino', I: 'Indeterminado' }
 const ECOG_LABEL = {
@@ -52,7 +52,7 @@ export default function ActaDocumento({ caso, form, acta }) {
     <div className="print-doc bg-white text-slate-900 max-w-[820px] mx-auto rounded-xl shadow-sm border border-slate-200 overflow-hidden">
       {/* ── Encabezado institucional ── */}
       <div className="flex items-center gap-3 px-8 py-4 border-b-2 border-slate-800">
-        <ElCircuito size={34} />
+        <LogoInoos className="h-12 w-auto shrink-0" color="#8258a0" />
         <div className="flex-1">
           <div className="font-display font-bold text-[15px] leading-tight text-slate-900">{INSTITUCION.nombre}</div>
           <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-500">{INSTITUCION.subtitulo}</div>

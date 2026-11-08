@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { formatCOP } from '@/lib/utils'
+import LogoInoos from '../components/LogoInoos'
 import {
   AlertTriangle, Users, Clock, TrendingDown, Shield,
-  Activity, Heart, XCircle, RefreshCw, Stethoscope, Target, TrendingUp, ChevronDown, ChevronUp
+  Activity, Heart, XCircle, CalendarDays, ClipboardList, RefreshCw, Stethoscope, Target, TrendingUp, ChevronDown, ChevronUp
 } from 'lucide-react'
 import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -230,6 +231,48 @@ function AhorroDetalle({ casos, onCaso }) {
   )
 }
 
+const TIPO_COMITE_CORTO = { tumor_solido: 'Tumor sólido', hematologico: 'Hematológico', multidisciplinario: 'Multidisciplinario' }
+
+// Encabezado: lo que el comité tiene por delante, con acceso directo a cada sección
+function ResumenAgenda({ agenda, navigate }) {
+  const p = agenda.proximo
+  const pendientesProx = p ? (p.casos || []).filter(c => !c.presentado).length : 0
+  const diasFaltan = p ? Math.round((new Date(`${p.fecha}T00:00:00`) - new Date(new Date().toDateString())) / 86400000) : null
+  const cuando = diasFaltan === 0 ? 'hoy' : diasFaltan === 1 ? 'mañana' : `en ${diasFaltan} días`
+  const chip = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-[13px] border transition-colors hover:border-[color:var(--marca)]'
+  const chipStyle = { background: 'var(--surface)', borderColor: 'var(--line)', color: 'var(--ink)' }
+  return (
+    <div className="mt-4 flex flex-wrap gap-2">
+      <button type="button" onClick={() => navigate('/comites')} className={chip} style={chipStyle}>
+        <CalendarDays size={14} style={{ color: 'var(--marca)' }} />
+        {p ? (
+          <span>
+            Próximo comité <b className="font-semibold">{cuando}</b>
+            <span style={{ color: 'var(--muted)' }}>
+              {' · '}{new Date(`${p.fecha}T00:00:00`).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}
+              {' · '}{TIPO_COMITE_CORTO[p.tipo_comite] || p.tipo_comite}
+              {' · '}{pendientesProx} {pendientesProx === 1 ? 'caso' : 'casos'}
+            </span>
+          </span>
+        ) : <span>Sin comités programados · <b className="font-semibold">programar uno</b></span>}
+      </button>
+      <button type="button" onClick={() => navigate('/agenda')} className={chip} style={chipStyle}>
+        <ClipboardList size={14} style={{ color: 'var(--marca)' }} />
+        <span><b className="font-semibold">{agenda.porPresentar}</b> {agenda.porPresentar === 1 ? 'caso' : 'casos'} por presentar</span>
+      </button>
+      <button type="button" onClick={() => navigate('/seguimientos')} className={chip}
+        style={agenda.vencidos ? { ...chipStyle, background: 'var(--warn-soft)', borderColor: 'color-mix(in srgb, var(--warn) 35%, var(--surface))' } : chipStyle}>
+        <AlertTriangle size={14} style={{ color: agenda.vencidos ? 'var(--warn)' : 'var(--ok)' }} />
+        <span>
+          {agenda.vencidos
+            ? <><b className="font-semibold">{agenda.vencidos}</b> {agenda.vencidos === 1 ? 'seguimiento vencido' : 'seguimientos vencidos'}</>
+            : 'Seguimientos al día'}
+        </span>
+      </button>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const [stats, setStats] = useState(null)
@@ -243,6 +286,7 @@ export default function Dashboard() {
   const [casosAhorro, setCasosAhorro] = useState([])
   const [verDetalleAhorro, setVerDetalleAhorro] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [agenda, setAgenda] = useState({ proximo: null, porPresentar: 0, vencidos: 0 })
 
   const fetchData = async () => {
     setLoading(true)
@@ -274,6 +318,18 @@ export default function Dashboard() {
           .not('costo_estimado', 'is', null)
           .in('decision', ['aprobado', 'modificado', 'rechazado']),
       ])
+
+      // Resumen operativo del encabezado
+      const hoyISO = new Date().toISOString().slice(0, 10)
+      const [prox, porPres, venc] = await Promise.all([
+        supabase.from('sesiones_comite').select('id, fecha, tipo_comite, casos:casos_comite(id, presentado)')
+          .gte('fecha', hoyISO).order('fecha').limit(1).maybeSingle(),
+        supabase.from('casos_comite').select('id', { count: 'exact', head: true })
+          .eq('presentado', false).not('sesion_id', 'is', null),
+        supabase.from('seguimientos').select('id', { count: 'exact', head: true })
+          .in('estado', ['pendiente', 'vencido']).lt('fecha_programada', hoyISO),
+      ])
+      setAgenda({ proximo: prox.data || null, porPresentar: porPres.count || 0, vencidos: venc.count || 0 })
 
       setStats({ ...(dashData || {}), seguimientos_pendientes: pendCount || 0 })
       setMensual(monthData || [])
@@ -325,18 +381,39 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="eyebrow mb-1">Comité oncológico</p>
-          <h1 className="text-xl font-display font-bold tracking-tight text-hueso">Panel General</h1>
+      {/* Encabezado: el panel es el centro de análisis del comité */}
+      <section className="relative overflow-hidden rounded-2xl px-6 py-7 md:px-8 md:py-8"
+        style={{
+          background: 'linear-gradient(120deg, color-mix(in srgb, var(--marca) 16%, var(--surface)) 0%, var(--surface) 70%)',
+          border: '1px solid color-mix(in srgb, var(--marca) 22%, var(--line))',
+        }}>
+        <LogoInoos isotipo aria-hidden="true"
+          className="pointer-events-none absolute -right-6 -bottom-10 h-56 w-auto opacity-[0.08]" />
+        <div className="relative flex flex-col md:flex-row md:items-end md:justify-between gap-5">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em]"
+              style={{ color: 'var(--marca)' }}>
+              <Activity size={14} /> Comité oncológico · Centro de análisis
+            </div>
+            <div role="heading" aria-level={1} className="mt-3"
+              style={{ fontFamily: 'var(--f-display)', fontWeight: 600, fontSize: 'clamp(32px, 4vw, 46px)', lineHeight: 1.05, letterSpacing: '-0.015em', color: 'var(--ink)' }}>
+              Panel general
+            </div>
+            <ResumenAgenda agenda={agenda} navigate={navigate} />
+          </div>
+          <div className="flex flex-col items-start md:items-end gap-2 shrink-0">
+            <span className="text-xs capitalize" style={{ color: 'var(--muted)' }}>
+              {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
+            <button onClick={fetchData}
+              className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all"
+              style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}>
+              <RefreshCw size={14} />
+              Actualizar datos
+            </button>
+          </div>
         </div>
-        <button onClick={fetchData}
-          className="flex items-center gap-2 px-4 py-2 rounded-full text-sm text-niebla
-                     hover:text-hueso border border-niebla/20 hover:border-pulso/50 transition-all">
-          <RefreshCw size={14} />
-          Actualizar
-        </button>
-      </div>
+      </section>
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">

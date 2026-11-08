@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { Eye, EyeOff } from 'lucide-react'
 import ElCircuito from '../components/ElCircuito'
+import LogoInoos from '../components/LogoInoos'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -33,13 +34,17 @@ export default function Login() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center rounded-2xl border border-niebla/15 bg-tinta-2"
-               style={{ boxShadow: 'inset 0 1px 0 rgba(53,201,182,0.2)' }}>
-            <ElCircuito size={40} />
+          <LogoInoos className="w-64 max-w-full h-auto mx-auto mb-6" />
+          <div className="flex items-center justify-center gap-3 mb-2" aria-hidden="true">
+            <span className="h-px w-10" style={{ background: 'color-mix(in srgb, var(--marca) 40%, transparent)' }} />
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--marca)' }} />
+            <span className="h-px w-10" style={{ background: 'color-mix(in srgb, var(--marca) 40%, transparent)' }} />
           </div>
-          <h1 className="text-2xl font-display font-bold tracking-tight text-hueso">SGICO</h1>
-          <p className="text-sm text-niebla mt-1">Rutas vivas de atención con IA</p>
-          <p className="text-[10px] font-mono text-niebla-oscura uppercase tracking-[0.2em] mt-1">Comité Oncológico</p>
+          <div role="heading" aria-level={1}
+            style={{ fontFamily: 'var(--f-body)', fontWeight: 300, fontSize: 26, letterSpacing: '0.42em', color: 'var(--marca)', paddingLeft: '0.42em' }}>
+            SGICO
+          </div>
+          <p className="text-[12px] text-niebla mt-1.5">Sistema de gestión del comité oncológico</p>
         </div>
 
         {/* Form */}
@@ -75,7 +80,9 @@ export default function Login() {
         </button>
 
         {/* Wordmark */}
-        <div className="text-center mt-10">
+        <div className="mt-10 flex items-center justify-center gap-1.5 text-xs text-niebla-oscura">
+          <span>by</span>
+          <ElCircuito size={16} />
           <span className="nv" style={{ fontSize: '0.85rem' }}>Nodo<i>via</i></span>
         </div>
       </div>
