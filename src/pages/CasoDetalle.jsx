@@ -7,6 +7,8 @@ import {
 } from '../lib/utils'
 import { copiarTextoAlPortapapeles } from '../lib/clipboard'
 import toast from 'react-hot-toast'
+import AdjuntosVisor from '../components/AdjuntosVisor'
+import { agregarAdjuntosACaso, categoriaLabel } from '../lib/adjuntos'
 import {
   ArrowLeft, Printer, Gavel, Clock, FileText, Download,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
@@ -194,18 +196,6 @@ export default function CasoDetalle() {
       setAgendando(false)
     }
   }
-
-  const descargarAdjunto = async (path, nombre) => {
-  try {
-    const { data, error } = await supabase.storage
-      .from('adjuntos').createSignedUrl(path, 60)
-    if (error) throw error
-    // Abrir en nueva pestaña — preserva la app, no más 404 al volver
-    window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
-  } catch (e) {
-    toast.error(`No se pudo abrir el archivo: ${e.message}`)
-  }
-}
 
   if (loading) {
     return (
@@ -412,28 +402,22 @@ export default function CasoDetalle() {
         </Section>
       )}
 
-      {caso.adjuntos?.length > 0 && (
-        <Section title={`Adjuntos (${caso.adjuntos.length})`} icon={Paperclip}>
-          <div className="md:col-span-2 space-y-2 print:hidden">
-            {caso.adjuntos.map((f, i) => (
-              <button key={i} onClick={() => descargarAdjunto(f.path, f.name)}
-                className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors text-left border border-slate-200">
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileText className="w-4 h-4 text-slate-600 shrink-0" />
-                  <span className="text-sm text-slate-800 truncate">{f.name}</span>
-                  <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
-                </div>
-                <FileText className="w-4 h-4 text-blue-600 shrink-0 ml-2" title="Abrir en nueva pestaña" />
-              </button>
-            ))}
-          </div>
+      <Section title={`Adjuntos${caso.adjuntos?.length ? ` (${caso.adjuntos.length})` : ''}`} icon={Paperclip}>
+        <div className="md:col-span-2 print:hidden flex flex-col">
+          <AdjuntosVisor adjuntos={caso.adjuntos || []} alto="min-h-[50vh]"
+            onSubidos={async (nuevos) => {
+              const adjuntos = await agregarAdjuntosACaso(caso.id, caso.adjuntos, nuevos)
+              setCaso(c => ({ ...c, adjuntos }))
+            }} />
+        </div>
+        {caso.adjuntos?.length > 0 && (
           <div className="md:col-span-2 hidden print:block">
             <ul className="text-sm text-slate-700 list-disc pl-5">
-              {caso.adjuntos.map((f, i) => <li key={i}>{f.name}</li>)}
+              {caso.adjuntos.map((f, i) => <li key={i}>{categoriaLabel(f.categoria)}: {f.name}</li>)}
             </ul>
           </div>
-        </Section>
-      )}
+        )}
+      </Section>
 
       {showHistorial && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-6 mb-6 print:hidden">

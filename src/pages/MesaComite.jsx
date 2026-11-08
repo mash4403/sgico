@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase'
 import { formatDateTime, generarTextoHistoriaClinica } from '../lib/utils'
 import { copiarTextoAlPortapapeles } from '../lib/clipboard'
 import ActaDocumento from '../components/ActaDocumento'
+import AdjuntosVisor from '../components/AdjuntosVisor'
+import { agregarAdjuntosACaso } from '../lib/adjuntos'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Gavel, Printer, Plus, X, Lock,
@@ -94,7 +96,7 @@ export default function MesaComite() {
   // Presentación por temas: una sección a la vez, a pantalla completa
   const [seccion, setSeccion] = useState(0)
   const [pantallaCompleta, setPantallaCompleta] = useState(false)
-  const totalSecciones = caso?.adjuntos?.length > 0 ? 6 : 5
+  const totalSecciones = 6
 
   useEffect(() => { cargarDatos() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -309,16 +311,6 @@ export default function MesaComite() {
     }
   }
 
-  async function descargarAdjunto(path) {
-    try {
-      const { data, error } = await supabase.storage.from('adjuntos').createSignedUrl(path, 60)
-      if (error) throw error
-      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
-    } catch (e) {
-      toast.error(`No se pudo abrir el archivo: ${e.message}`)
-    }
-  }
-
   async function copiarAHistoriaClinica() {
     // Copiar el estado en pantalla (form), incluyendo cambios sin guardar.
     // Se conserva fecha_firma del acta guardada si existe.
@@ -419,19 +411,14 @@ export default function MesaComite() {
           className={textoGrande} />
       ),
     },
-    caso.adjuntos?.length > 0 && {
-      key: 'adjuntos', title: `Adjuntos (${caso.adjuntos.length})`, icon: Paperclip,
+    {
+      key: 'adjuntos', title: `Adjuntos${caso.adjuntos?.length ? ` (${caso.adjuntos.length})` : ''}`, icon: Paperclip,
       content: (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {caso.adjuntos.map((f, i) => (
-            <button key={i} type="button" onClick={() => descargarAdjunto(f.path)}
-              className="w-full flex items-center gap-3 p-4 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 text-left transition-colors">
-              <FileText className="w-5 h-5 text-blue-600 shrink-0" />
-              <span className="text-base text-slate-800 truncate flex-1">{f.name}</span>
-              {f.size ? <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span> : null}
-            </button>
-          ))}
-        </div>
+        <AdjuntosVisor adjuntos={caso.adjuntos || []}
+          onSubidos={readOnly ? undefined : async (nuevos) => {
+            const adjuntos = await agregarAdjuntosACaso(caso.id, caso.adjuntos, nuevos)
+            setCaso(c => ({ ...c, adjuntos }))
+          }} />
       ),
     },
     {

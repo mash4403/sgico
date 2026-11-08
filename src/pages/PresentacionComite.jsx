@@ -7,6 +7,8 @@ import { buscarHistologia } from '../lib/histologia'
 import toast from 'react-hot-toast'
 import NuevoProtocoloModal from '../components/NuevoProtocoloModal'
 import { TIPOS_EVIDENCIA } from '../lib/evidencia'
+import { SubirAdjuntos } from '../components/AdjuntosVisor'
+import { CATEGORIAS_ADJUNTO } from '../lib/adjuntos'
 import {
   ChevronLeft, ChevronRight, Send, Check,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
@@ -2309,70 +2311,35 @@ function DiffRow({ label, value }) {
 }
 
 function StepAdjuntos({ data, update }) {
-  const [uploading, setUploading] = useState(false)
-  const sanitize = (name) => name.replace(/[^\w.\-]/g, '_').replace(/_+/g, '_')
-
-  const onUpload = async (e) => {
-    const files = Array.from(e.target.files || [])
-    if (!files.length) return
-    setUploading(true)
-    try {
-      const nuevos = []
-      for (const file of files) {
-        const cleanName = sanitize(file.name)
-        const path = `casos/${Date.now()}_${cleanName}`
-        const { error } = await supabase.storage
-          .from('adjuntos').upload(path, file, { upsert: false })
-        if (error) throw error
-        nuevos.push({ name: file.name, path, size: file.size, type: file.type })
-      }
-      update('adjuntos', [...(data.adjuntos || []), ...nuevos])
-      toast.success(`${files.length} archivo(s) cargado(s)`)
-    } catch (err) {
-      toast.error(`Error al subir: ${err.message}`)
-    } finally {
-      setUploading(false)
-      e.target.value = ''
-    }
-  }
-
+  const adjuntos = data.adjuntos || []
   const remove = async (idx) => {
-    const file = data.adjuntos[idx]
-    try {
-      await supabase.storage.from('adjuntos').remove([file.path])
-    } catch { /* ignore */ }
-    const next = data.adjuntos.filter((_, i) => i !== idx)
-    update('adjuntos', next)
+    try { await supabase.storage.from('adjuntos').remove([adjuntos[idx].path]) } catch { /* ignore */ }
+    update('adjuntos', adjuntos.filter((_, i) => i !== idx))
   }
+  const cambiarCategoria = (idx, categoria) =>
+    update('adjuntos', adjuntos.map((f, i) => i === idx ? { ...f, categoria } : f))
 
   return (
-    <Section title="Adjuntos" description="PDFs de imágenes, patología, consentimientos y resúmenes clínicos" icon={Paperclip}>
+    <Section title="Adjuntos" description="Historia clínica, patologías, imágenes y demás soportes para presentar en el comité" icon={Paperclip}>
       <div className="md:col-span-2">
-        <label className="block">
-          <div className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-            uploading ? 'border-blue-400 bg-blue-50' : 'border-slate-400 hover:border-blue-500 hover:bg-slate-50'
-          }`}>
-            <Paperclip className="w-10 h-10 mx-auto mb-2 text-slate-500" />
-            <p className="text-sm font-semibold text-slate-800">
-              {uploading ? 'Subiendo archivos...' : 'Haga clic o arrastre archivos aquí'}
-            </p>
-            <p className="text-xs text-slate-600 mt-1">PDF, JPG, PNG · máximo 25 MB por archivo</p>
-          </div>
-          <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png"
-            onChange={onUpload} className="hidden" disabled={uploading} />
-        </label>
+        <p className="text-sm text-slate-600 mb-2">
+          Elige el tipo de documento y sube los archivos. Se podrán ver en la pantalla del comité, y también agregar más después desde el caso.
+        </p>
+        <SubirAdjuntos onSubidos={(nuevos) => update('adjuntos', [...adjuntos, ...nuevos])} />
 
-        {data.adjuntos?.length > 0 && (
+        {adjuntos.length > 0 && (
           <div className="mt-4 space-y-2">
-            {data.adjuntos.map((f, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileCheck2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="text-sm text-slate-800 truncate">{f.name}</span>
-                  <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
-                </div>
+            {adjuntos.map((f, i) => (
+              <div key={f.path} className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <FileCheck2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="text-sm text-slate-800 truncate flex-1">{f.name}</span>
+                <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                <select value={f.categoria || 'otro'} onChange={e => cambiarCategoria(i, e.target.value)}
+                  className="px-2 py-1 border border-slate-300 rounded-md text-xs text-slate-800 bg-white shrink-0">
+                  {CATEGORIAS_ADJUNTO.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
                 <button onClick={() => remove(i)}
-                  className="text-xs text-red-600 hover:text-red-700 ml-2 font-semibold">Eliminar</button>
+                  className="text-xs text-red-600 hover:text-red-700 ml-1 font-semibold shrink-0">Eliminar</button>
               </div>
             ))}
           </div>
