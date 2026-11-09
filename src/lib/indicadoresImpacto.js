@@ -19,7 +19,9 @@ export function valorPorCaso(c) {
   const propCiclo = num(c.costo_estimado)
   if (propCiclo == null) return null
   const aprobado = APROBADOS.includes(c.decision)
-  const defCiclo = aprobado ? (num(c.costo_molecula_aprobada) ?? propCiclo) : (num(c.costo_previo) ?? 0)
+  // costo_molecula_aprobada tiene DEFAULT 0 en BD: 0 = no registrado, se usa el propuesto
+  const ap = num(c.costo_molecula_aprobada)
+  const defCiclo = aprobado ? (ap > 0 ? ap : propCiclo) : (num(c.costo_previo) ?? 0)
 
   const proy = c.proyeccion_costos
   const ciclos = num(proy?.propuesto?.ciclos_pfs)
@@ -70,7 +72,10 @@ export function impactoSobrevida(desenlaces, casosPorId) {
   const grupo = (lista) => {
     // Meses de PFS ganados frente a la línea previa (solo pacientes con PFS del tratamiento anterior)
     const ganancias = lista.map(d => {
-      const prev = num(casosPorId[d.caso_id]?.proyeccion_costos?.actual?.pfs_meses)
+      const proy = casosPorId[d.caso_id]?.proyeccion_costos
+      // En duración fija (adyuvancia, neoadyuvancia…) el objetivo no es el PFS: no se compara
+      if (proy?.propuesto?.duracion === 'fija' || proy?.actual?.duracion === 'fija') return null
+      const prev = num(proy?.actual?.pfs_meses)
       const esp = num(d.pfs_esperado), real = num(d.pfs_real_meses)
       if (prev == null || esp == null || real == null) return null
       return { esperada: esp - prev, real: real - prev }

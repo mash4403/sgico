@@ -7,8 +7,9 @@ import { buscarHistologia } from '../lib/histologia'
 import toast from 'react-hot-toast'
 import NuevoProtocoloModal from '../components/NuevoProtocoloModal'
 import { TIPOS_EVIDENCIA } from '../lib/evidencia'
-import { SubirAdjuntos } from '../components/AdjuntosVisor'
-import { CATEGORIAS_ADJUNTO } from '../lib/adjuntos'
+import { AdjuntosPorCategoria } from '../components/AdjuntosVisor'
+import { eliminarArchivoAdjunto } from '../lib/adjuntos'
+import { TIPOS_DURACION, ciclosSegunDuracion, etiquetaCiclos } from '../lib/duracion'
 import {
   ChevronLeft, ChevronRight, Send, Check,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
@@ -38,6 +39,7 @@ const STEPS = [
 ]
 
 const DRAFT_KEY = 'sgico_presentacion_draft'
+const PROTOCOLO_COLS = 'id, nombre, estudio_pivotal, pfs_esperado_meses, os_esperado_meses, tipo_evidencia, evidencia_link'
 const NA = '__NA__'
 // Comodín de la CAC para una fecha que existe pero no se conoce.
 const FECHA_DESCONOCIDA_CAC = '1800-01-01'
@@ -83,8 +85,12 @@ const CONTEXTO_OPTS = [
   { value: 'metastasica_posterior', label: 'Líneas metastásicas posteriores' },
 ]
 
-// Naive = sin tratamiento previo (fuente de verdad para bloquear tratamiento actual)
-const esPacienteNaive = (ctx) => ctx === 'naive'
+// Sin tratamiento oncológico actual: naive (nunca tratado) y neoadyuvancia
+// (el tratamiento neoadyuvante es el que se propone). Fuente de verdad para
+// bloquear el tratamiento actual, su costo y su supervivencia.
+const CONTEXTOS_SIN_TX_ACTUAL = ['naive', 'neoadyuvancia']
+const esPacienteNaive = (ctx) => CONTEXTOS_SIN_TX_ACTUAL.includes(ctx)
+const etiquetaSinTx = (ctx) => (ctx === 'neoadyuvancia' ? 'en neoadyuvancia' : 'naive')
 
 // Deriva linea_actual (integer) desde el contexto, por compatibilidad con datos previos.
 const contextoALinea = (ctx) => {
@@ -326,6 +332,9 @@ const initialState = {
   costo_ciclo_actual: '', dias_ciclo_actual: '21',
   pfs_actual_meses: '', os_actual_meses: '',
   costo_ciclo_propuesto: '', dias_ciclo_propuesto: '21',
+  // Duración para costos: hasta_progresion | fija | tope (ver lib/duracion.js)
+  duracion_propuesto: 'hasta_progresion', ciclos_propuesto: '',
+  duracion_actual: 'hasta_progresion', ciclos_actual: '',
   tiene_invima: '',
   en_unirse: '',
 
@@ -398,8 +407,10 @@ export default function PresentacionComite() {
       supabase.from('medicos').select('id, nombre, especialidad').eq('activo', true).order('nombre'),
       supabase.from('gestores').select('id, nombre').eq('activo', true).order('nombre'),
       supabase.from('protocolos')
-        .select('id, nombre, estudio_pivotal, pfs_esperado_meses, os_esperado_meses, tipo_evidencia, evidencia_link')
-        .eq('activo', true).order('nombre'),
+        .select(`${PROTOCOLO_COLS}, tipo_duracion, ciclos_esquema, dias_ciclo`)
+        .eq('activo', true).order('nombre')
+        // Respaldo mientras no esté aplicada la migración 022
+        .then(r => r.error ? supabase.from('protocolos').select(PROTOCOLO_COLS).eq('activo', true).order('nombre') : r),
     ])
     setSedes(s.data || [])
     setEps(e.data || [])
@@ -411,6 +422,16 @@ export default function PresentacionComite() {
   const update = (field, value) => {
     setData(prev => ({ ...prev, [field]: value }))
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: undefined }))
+  }
+
+  // Adjuntos: actualización funcional para no perder archivos si se suben en paralelo
+  const adj = {
+    lista: data.adjuntos || [],
+    agregar: (nuevos) => setData(prev => ({ ...prev, adjuntos: [...(prev.adjuntos || []), ...nuevos] })),
+    eliminar: async (path) => {
+      await eliminarArchivoAdjunto(path)
+      setData(prev => ({ ...prev, adjuntos: (prev.adjuntos || []).filter(f => f.path !== path) }))
+    },
   }
 
   const updateMany = (patch) => {
@@ -444,7 +465,7 @@ export default function PresentacionComite() {
     update(field, data[field] === NA ? '' : NA)
   }
 
-  /* ── Cálculo de proyección — solo PFS ── */
+  /* ── Cálculo de proyección: PFS, duración fija o PFS con tope ── */
   const proyeccion = useMemo(() => {
     return calcularProyeccion(data)
   }, [ // eslint-disable-line react-hooks/exhaustive-deps
@@ -452,6 +473,8 @@ export default function PresentacionComite() {
     data.costo_ciclo_propuesto, data.dias_ciclo_propuesto,
     data.pfs_actual_meses, data.os_actual_meses,
     data.pfs_esperado_estudio, data.os_esperado_estudio,
+    data.duracion_propuesto, data.ciclos_propuesto, data.duracion_actual, data.ciclos_actual,
+    data.contexto_actual,
   ])
 
   const validateStep = (idx) => {
@@ -542,7 +565,11 @@ export default function PresentacionComite() {
         // Sin propuesta: no hay estudio pivotal que referenciar
         if (data.protocolo_id !== NA) {
           req('evidencia_referencia')
-          req('pfs_esperado_estudio'); req('os_esperado_estudio')
+          // En duración fija (adyuvancia, neoadyuvancia…) el costo no depende del PFS
+          if (data.duracion_propuesto !== 'fija') { req('pfs_esperado_estudio'); req('os_esperado_estudio') }
+          if (data.duracion_propuesto !== 'hasta_progresion' && !(parseFloat(data.ciclos_propuesto) > 0)) {
+            errs.ciclos_propuesto = 'Indica el número de ciclos'
+          }
         }
         break
       case 9:
@@ -555,7 +582,10 @@ export default function PresentacionComite() {
         // El paciente naive no tiene tratamiento actual que costear
         if (!esPacienteNaive(data.contexto_actual)) {
           req('costo_ciclo_actual'); req('dias_ciclo_actual')
-          req('pfs_actual_meses'); req('os_actual_meses')
+          if (data.duracion_actual !== 'fija') { req('pfs_actual_meses'); req('os_actual_meses') }
+          if (data.duracion_actual !== 'hasta_progresion' && !(parseFloat(data.ciclos_actual) > 0)) {
+            errs.ciclos_actual = 'Indica el número de ciclos'
+          }
         }
         if (data.protocolo_id !== NA) {
           req('costo_ciclo_propuesto'); req('dias_ciclo_propuesto')
@@ -903,18 +933,18 @@ export default function PresentacionComite() {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-4 lg:p-8 mb-6">
-        {step === 0 && <StepAdmin {...{ data, update, errors, sedes, eps, medicos, gestores }} />}
+        {step === 0 && <StepAdmin {...{ data, update, errors, sedes, eps, medicos, gestores, adj }} />}
         {step === 1 && <StepDemograficos {...{ data, update, errors }} />}
-        {step === 2 && <StepDiagnostico {...{ data, update, errors, toggleNA }} />}
+        {step === 2 && <StepDiagnostico {...{ data, update, errors, toggleNA, adj }} />}
         {step === 3 && <StepAntecedentes {...{ data, update, errors, toggleNA }} />}
         {step === 4 && <StepCapacidad {...{ data, update, errors, toggleNA }} />}
-        {step === 5 && <StepEstudios {...{ data, update, errors, toggleNA }} />}
+        {step === 5 && <StepEstudios {...{ data, update, errors, toggleNA, adj }} />}
         {step === 6 && <StepTratamientos {...{ data, update, updateContextoActual, errors, toggleNA }} />}
         {step === 7 && <StepValoraciones {...{ data, update, errors }} />}
         {step === 8 && <StepEvidencia {...{ data, update, errors, toggleNA, protocolos, setProtocolos }} />}
         {step === 9 && <StepPregunta {...{ data, update, errors, toggleNA, protocolos }} />}
         {step === 10 && <StepCostos {...{ data, update, errors, toggleNA, proyeccion }} />}
-        {step === 11 && <StepAdjuntos {...{ data, update, errors }} />}
+        {step === 11 && <StepAdjuntos {...{ adj }} />}
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
@@ -1016,63 +1046,57 @@ function calcularProyeccion(d) {
   const dp = parseInt(d.dias_ciclo_propuesto, 10)
   const pfsP = parseFloat(d.pfs_esperado_estudio)
   const osP  = parseFloat(d.os_esperado_estudio)
+  const modoP = d.duracion_propuesto || 'hasta_progresion'
+  const modoA = d.duracion_actual || 'hasta_progresion'
 
-  // PFS y OS actuales pueden ser "No aplica" (paciente naive)
-  const pfsActualNA = d.pfs_actual_meses === NA
-  const osActualNA  = d.os_actual_meses === NA
-  const pfsA = pfsActualNA ? null : parseFloat(d.pfs_actual_meses)
-  const osA  = osActualNA  ? null : parseFloat(d.os_actual_meses)
+  // PFS y OS actuales pueden ser "No aplica" (paciente naive / duración fija)
+  const pfsA = d.pfs_actual_meses === NA ? null : parseFloat(d.pfs_actual_meses)
+  const osA  = d.os_actual_meses === NA  ? null : parseFloat(d.os_actual_meses)
+  const valido = (v) => v != null && !isNaN(v) && v > 0
 
-  // Inputs mínimos requeridos para calcular cualquier cosa.
-  // En un paciente naive no hay tratamiento actual (ca y da son 0), así que
-  // exigirlos > 0 anularía la proyección del propuesto, que sí es válida.
-  const minimos = pfsActualNA ? [cp, dp, pfsP] : [ca, da, cp, dp, pfsP]
-  if (minimos.some(v => isNaN(v) || v <= 0)) return null
+  // Ciclos a costear del propuesto: por PFS, los del esquema (fija) o PFS con tope.
+  // Al progresar se cambia de línea; la SG nunca entra en el costo.
+  if (!valido(cp) || !valido(dp)) return null
+  const ciclosP = ciclosSegunDuracion(modoP, pfsP, dp, d.ciclos_propuesto)
+  if (ciclosP == null) return null
+  const totalP = ciclosP * cp
 
-  const ciclosPfsP = (pfsP * 30) / dp
-  const totalPfsP = ciclosPfsP * cp
-  const ciclosOsP = !isNaN(osP) && osP > 0 ? (osP * 30) / dp : null
-  const totalOsP  = ciclosOsP != null ? ciclosOsP * cp : null
+  const sinTx = esPacienteNaive(d.contexto_actual)
+  const ciclosA = !sinTx && valido(ca) && valido(da)
+    ? ciclosSegunDuracion(modoA, pfsA, da, d.ciclos_actual) : null
 
-  // Si el actual aplica, calcular comparativo
-  let actual = { costo_ciclo: ca, duracion_dias: da, pfs_meses: null, os_meses: null }
-  let diferencial = null
+  let actual = { costo_ciclo: sinTx ? 0 : ca, duracion_dias: sinTx ? 0 : da, pfs_meses: null, os_meses: null }
+  let diferencial
 
-  if (pfsA != null && !isNaN(pfsA) && pfsA > 0) {
-    const ciclosPfsA = (pfsA * 30) / da
-    const totalPfsA = ciclosPfsA * ca
-    const ciclosOsA = osA != null && !isNaN(osA) && osA > 0 ? (osA * 30) / da : null
-    const totalOsA  = ciclosOsA != null ? ciclosOsA * ca : null
-
+  if (ciclosA != null) {
+    const totalA = ciclosA * ca
     actual = {
       ...actual,
-      pfs_meses: pfsA,
-      os_meses: osA,
-      ciclos_pfs: redondear(ciclosPfsA, 2),
-      ciclos_os:  ciclosOsA != null ? redondear(ciclosOsA, 2) : null,
-      total_pfs: redondear(totalPfsA),
-      total_os:  totalOsA != null ? redondear(totalOsA) : null,
+      duracion: modoA,
+      ciclos_esquema: modoA !== 'hasta_progresion' ? parseFloat(d.ciclos_actual) : null,
+      pfs_meses: valido(pfsA) ? pfsA : null,
+      os_meses: valido(osA) ? osA : null,
+      ciclos_pfs: redondear(ciclosA, 2),
+      total_pfs: redondear(totalA),
     }
-
-    const diffPfs = totalPfsP - totalPfsA
-    const ganPfs = pfsP - pfsA
+    // Ganancia de PFS solo si ambos tratamientos se miden por PFS (no en duración fija)
+    const gan = modoP !== 'fija' && modoA !== 'fija' && valido(pfsP) && valido(pfsA) ? pfsP - pfsA : null
+    const diff = totalP - totalA
     diferencial = {
-      diferencia_pfs: redondear(diffPfs),
-      ganancia_pfs_meses: redondear(ganPfs, 2),
-      costo_por_mes_pfs_ganado: ganPfs > 0 ? redondear(diffPfs / ganPfs) : null,
+      diferencia_pfs: redondear(diff),
+      ganancia_pfs_meses: gan != null ? redondear(gan, 2) : null,
+      costo_por_mes_pfs_ganado: gan > 0 ? redondear(diff / gan) : null,
       es_naive: false,
     }
   } else {
-    // Sin PFS actual no hay con qué comparar. Dos motivos distintos caen aquí:
-    // el paciente nunca fue tratado, o tiene línea previa y falta el dato.
+    // Sin tratamiento actual costeable no hay con qué comparar: paciente sin
+    // tratamiento (naive / neoadyuvancia) o faltan datos del actual.
     diferencial = {
       diferencia_pfs: null,
       ganancia_pfs_meses: null,
       costo_por_mes_pfs_ganado: null,
       es_naive: true,
-      motivo_sin_diferencial: esPacienteNaive(d.contexto_actual)
-        ? 'naive'
-        : 'falta_pfs_actual',
+      motivo_sin_diferencial: sinTx ? d.contexto_actual : 'falta_pfs_actual',
     }
   }
 
@@ -1081,15 +1105,15 @@ function calcularProyeccion(d) {
     propuesto: {
       costo_ciclo: cp,
       duracion_dias: dp,
-      pfs_meses: pfsP,
-      os_meses: !isNaN(osP) && osP > 0 ? osP : null,
-      ciclos_pfs: redondear(ciclosPfsP, 2),
-      ciclos_os:  ciclosOsP != null ? redondear(ciclosOsP, 2) : null,
-      total_pfs:  redondear(totalPfsP),
-      total_os:   totalOsP != null ? redondear(totalOsP) : null,
+      duracion: modoP,
+      ciclos_esquema: modoP !== 'hasta_progresion' ? parseFloat(d.ciclos_propuesto) : null,
+      pfs_meses: valido(pfsP) ? pfsP : null,
+      os_meses: valido(osP) ? osP : null,
+      ciclos_pfs: redondear(ciclosP, 2),
+      total_pfs:  redondear(totalP),
     },
     diferencial,
-    nota: 'Cálculo basado en PFS (Progression-Free Survival). El OS se muestra como referencia clínica únicamente.',
+    nota: 'Costo del tratamiento: hasta la progresión (PFS), cuando se cambia de línea, o los ciclos del esquema en tratamientos de duración fija. La SG es solo referencia clínica y no entra en el costo.',
   }
 }
 
@@ -1527,7 +1551,7 @@ function ImagenesEditor({ value, onChange }) {
 /* ──────────────────────────────────────────────────────────────
    STEPS
    ────────────────────────────────────────────────────────────── */
-function StepAdmin({ data, update, errors, sedes, eps, medicos, gestores }) {
+function StepAdmin({ data, update, errors, sedes, eps, medicos, gestores, adj }) {
   return (
     <Section title="Datos administrativos" description="Información de ruta del paciente y solicitante" icon={Building2}>
       <Field label="Sede" required error={errors.sede_id}>
@@ -1567,6 +1591,8 @@ function StepAdmin({ data, update, errors, sedes, eps, medicos, gestores }) {
           max={new Date().toISOString().split('T')[0]}
           onChange={v => update('fecha_solicitud', v)} error={errors.fecha_solicitud} />
       </Field>
+      <SeccionAdjuntos adj={adj} categorias={['historia_clinica']}
+        texto="Si ya tienes la historia clínica, adjúntala aquí." />
     </Section>
   )
 }
@@ -1617,7 +1643,7 @@ const SI_NO_OPTS = [{ value: 'si', label: 'Sí' }, { value: 'no', label: 'No' }]
 // Todo paciente con CA tiene patología: no existe "No", solo "Sin dato"
 const PATOLOGIA_OPTS = [{ value: 'si', label: 'Sí' }, { value: 'sin_dato', label: 'Sin dato' }]
 
-function StepDiagnostico({ data, update, errors, toggleNA }) {
+function StepDiagnostico({ data, update, errors, toggleNA, adj }) {
   const conPatologia = data.patologia_realizada === 'si'
   const sinEstadio = data.estadio_clinico === NA
   const conIHQ = data.inmunohistoquimica_realizada === 'si'
@@ -1732,6 +1758,8 @@ function StepDiagnostico({ data, update, errors, toggleNA }) {
           placeholder="Ej. EGFR exón 19 deletion positivo, ALK negativo, ROS1 negativo, PD-L1 TPS 5%"
           error={errors.estudios_moleculares} />
       </Field>
+      <SeccionAdjuntos adj={adj} categorias={['patologia', 'molecular']}
+        texto="Adjunta los reportes de patología, inmunohistoquímica y estudios moleculares." />
     </Section>
   )
 }
@@ -1805,7 +1833,7 @@ function StepAntecedentes({ data, update, errors, toggleNA }) {
   )
 }
 
-function StepEstudios({ data, update, errors, toggleNA }) {
+function StepEstudios({ data, update, errors, toggleNA, adj }) {
   return (
     <Section title="Estudios paraclínicos" description="Imágenes y laboratorio (los estudios diagnósticos van en Diagnóstico)" icon={FlaskConical}>
       <ImagenesEditor value={data.imagenes_list}
@@ -1815,6 +1843,8 @@ function StepEstudios({ data, update, errors, toggleNA }) {
           placeholder="Ej. Hb 12.4, Leu 6800, Plaq 220k, Cr 0.9, BT 0.7..."
           error={errors.estudios_laboratorio} />
       </Field>
+      <SeccionAdjuntos adj={adj} categorias={['imagenes', 'laboratorio']}
+        texto="Adjunta los reportes de imágenes y laboratorios." />
     </Section>
   )
 }
@@ -1833,17 +1863,17 @@ function StepTratamientos({ data, update, updateContextoActual, errors, toggleNA
         </h3>
       </div>
       <Field label="Contexto terapéutico actual" required error={errors.contexto_actual}
-        hint="Naive = sin tratamiento previo. Las líneas 1/2/3+ son de enfermedad metastásica; neo/adyuvancia no son líneas metastásicas.">
+        hint="Naive = sin tratamiento previo. En naive y neoadyuvancia no se diligencia tratamiento actual. Las líneas 1/2/3+ son de enfermedad metastásica.">
         <Select value={data.contexto_actual} onChange={updateContextoActual}
           options={CONTEXTO_OPTS} error={errors.contexto_actual} />
       </Field>
       <Field label="Tratamiento oncológico actual" required={!naive} error={errors.tratamiento_actual}
         hint={naive
-          ? 'Paciente naive: sin tratamiento oncológico previo.'
+          ? `Paciente ${etiquetaSinTx(data.contexto_actual)}: sin tratamiento oncológico actual.`
           : 'Oncológico que recibe ahora (incluye terapia dirigida / hormonoterapia / inmunoterapia si aplica). No es la medicación general.'}>
         <Input value={naive ? '' : data.tratamiento_actual} disabled={naive}
           onChange={v => update('tratamiento_actual', v)}
-          placeholder={naive ? 'No aplica (naive)' : 'Ej. Carboplatino + Pemetrexed'}
+          placeholder={naive ? `No aplica (${etiquetaSinTx(data.contexto_actual)})` : 'Ej. Carboplatino + Pemetrexed'}
           error={errors.tratamiento_actual} />
       </Field>
 
@@ -1978,6 +2008,11 @@ function StepEvidencia({ data, update, errors, toggleNA, protocolos, setProtocol
       if (p.evidencia_link)  update('evidencia_link', p.evidencia_link)
       if (p.pfs_esperado_meses != null) update('pfs_esperado_estudio', p.pfs_esperado_meses)
       if (p.os_esperado_meses != null)  update('os_esperado_estudio', p.os_esperado_meses)
+      if (p.tipo_duracion) {
+        update('duracion_propuesto', p.tipo_duracion)
+        update('ciclos_propuesto', p.ciclos_esquema != null ? String(p.ciclos_esquema) : '')
+      }
+      if (p.dias_ciclo) update('dias_ciclo_propuesto', String(p.dias_ciclo))
     }
   }
 
@@ -2034,6 +2069,13 @@ function StepEvidencia({ data, update, errors, toggleNA, protocolos, setProtocol
           onChange={v => update('os_esperado_estudio', v)} placeholder="Ej. 22.0"
           error={errors.os_esperado_estudio} />
       </Field>
+      {!sinPropuesta && (
+        <DuracionEditor
+          titulo="Duración del tratamiento propuesto"
+          modo={data.duracion_propuesto} ciclos={data.ciclos_propuesto} error={errors.ciclos_propuesto}
+          onModo={v => update('duracion_propuesto', v)} onCiclos={v => update('ciclos_propuesto', v)}
+          etiquetaCiclos={{ fija: 'Ciclos del esquema', tope: 'Máximo de ciclos' }} />
+      )}
     </Section>
   )
 }
@@ -2096,7 +2138,7 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
   return (
     <Section
       title="Costos del tratamiento por ciclo"
-      description="Cálculo basado en PFS — el OS se muestra solo como referencia clínica"
+      description="El costo se calcula hasta la progresión (PFS), cuando se cambia de línea, o por los ciclos del esquema en tratamientos de duración fija. La SG es solo referencia clínica."
       icon={DollarSign}
     >
       {/* TRATAMIENTO ACTUAL */}
@@ -2107,7 +2149,7 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
       </div>
       {naive && (
         <div className="md:col-span-2 -mt-2 mb-1 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
-          Paciente naive — sin tratamiento previo. No aplica costo ni supervivencia
+          Paciente {etiquetaSinTx(data.contexto_actual)} — sin tratamiento oncológico actual. No aplica costo ni supervivencia
           del tratamiento actual.
         </div>
       )}
@@ -2121,16 +2163,23 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
           onChange={v => update('dias_ciclo_actual', v)} placeholder="21"
           error={errors.dias_ciclo_actual} />
       </Field>
-      <Field label="PFS estimado actual (meses)" required={!naive} error={errors.pfs_actual_meses}
+      {!naive && (
+        <DuracionEditor
+          titulo="Duración del tratamiento actual"
+          modo={data.duracion_actual} ciclos={data.ciclos_actual} error={errors.ciclos_actual}
+          onModo={v => update('duracion_actual', v)} onCiclos={v => update('ciclos_actual', v)}
+          etiquetaCiclos={{ fija: 'Ciclos que le faltan', tope: 'Máximo de ciclos que le faltan' }} />
+      )}
+      <Field label="PFS estimado actual (meses)" required={!naive && data.duracion_actual !== 'fija'} error={errors.pfs_actual_meses}
         naValue={pfsActualNA} onToggleNA={naive ? undefined : () => toggleNA('pfs_actual_meses')}
         hint={naive ? undefined : "Si el paciente es naive (línea 0), marque 'No aplica'."}>
         <Input type="number" step="0.1" min="0" value={data.pfs_actual_meses} disabled={naive}
           onChange={v => update('pfs_actual_meses', v)} placeholder="Ej. 4.5"
           error={errors.pfs_actual_meses} />
       </Field>
-      <Field label="OS estimado actual (meses)" required={!naive} error={errors.os_actual_meses}
+      <Field label="OS estimado actual (meses)" required={!naive && data.duracion_actual !== 'fija'} error={errors.os_actual_meses}
         naValue={osActualNA} onToggleNA={naive ? undefined : () => toggleNA('os_actual_meses')}
-        hint={naive ? undefined : 'Información de referencia. No se usa en el cálculo económico.'}>
+        hint={naive ? undefined : 'Referencia clínica. No entra en el costo: al progresar se cambia de línea.'}>
         <Input type="number" step="0.1" min="0" value={data.os_actual_meses} disabled={naive}
           onChange={v => update('os_actual_meses', v)} placeholder="Ej. 13.5"
           error={errors.os_actual_meses} />
@@ -2152,8 +2201,11 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
           onChange={v => update('dias_ciclo_propuesto', v)} placeholder="28"
           error={errors.dias_ciclo_propuesto} />
       </Field>
-      <Field label="PFS esperado propuesto" hint="Tomado del paso Evidencia (ítem de cálculo)">
-        <Input value={data.pfs_esperado_estudio ? `${data.pfs_esperado_estudio} meses` : ''} disabled
+      <Field label="Duración del propuesto" hint="Se define en el paso Evidencia">
+        <Input disabled value={
+          data.duracion_propuesto === 'fija' ? `Duración fija · ${data.ciclos_propuesto || '—'} ciclos`
+          : data.duracion_propuesto === 'tope' ? `Hasta progresión (PFS ${data.pfs_esperado_estudio || '—'} m), máx. ${data.ciclos_propuesto || '—'} ciclos`
+          : data.pfs_esperado_estudio ? `Hasta progresión · PFS ${data.pfs_esperado_estudio} meses` : ''}
           placeholder="Llene primero el paso Evidencia" />
       </Field>
       <Field label="OS esperado propuesto" hint="Solo referencia clínica, no se calcula">
@@ -2190,7 +2242,7 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
               📊 Proyección de impacto económico
             </h3>
             <span className="text-[10px] font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
-              Cálculo basado en PFS
+              Costo del tratamiento
             </span>
           </div>
 
@@ -2210,27 +2262,42 @@ function StepCostos({ data, update, errors, toggleNA, proyeccion }) {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                 <DiffRow
-                  label="Diferencia hasta progresión (PFS)"
+                  label="Diferencia en el costo del tratamiento"
                   value={proyeccion.diferencial.diferencia_pfs} />
-                <DiffRow
-                  label={`Costo por mes ganado de PFS (${proyeccion.diferencial.ganancia_pfs_meses > 0 ? '+' : ''}${proyeccion.diferencial.ganancia_pfs_meses}m)`}
-                  value={proyeccion.diferencial.costo_por_mes_pfs_ganado} />
+                {proyeccion.diferencial.ganancia_pfs_meses != null ? (
+                  <DiffRow
+                    label={`Costo por mes ganado de PFS (${proyeccion.diferencial.ganancia_pfs_meses > 0 ? '+' : ''}${proyeccion.diferencial.ganancia_pfs_meses}m)`}
+                    value={proyeccion.diferencial.costo_por_mes_pfs_ganado} />
+                ) : (
+                  <div className="text-xs text-slate-500 self-center">
+                    Costo por mes de PFS ganado: no aplica en tratamientos de duración fija.
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
       ) : (
         <div className="md:col-span-2 mt-4 bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-sm text-amber-900">
-          ⚠️ Llene los costos por ciclo, las duraciones, y el PFS del paso Evidencia para ver la proyección automática.
+          ⚠️ Llene el costo y la duración del ciclo, y en el paso Evidencia el PFS o los ciclos del esquema, para ver la proyección automática.
         </div>
       )}
     </Section>
   )
 }
 
+// La SG (OS) solo se muestra como dato clínico: el costo va hasta la progresión
+function OsReferencia({ meses }) {
+  return (
+    <div className="mt-1 pt-1 border-t border-slate-200 text-xs text-slate-500">
+      SG (OS) de referencia: {meses} meses · no entra en el costo
+    </div>
+  )
+}
+
 function CardActual({ proy }) {
   const a = proy.actual
-  const sinCalculo = a.pfs_meses == null
+  const sinCalculo = a.total_pfs == null
   return (
     <div className="bg-white rounded-lg p-3 border border-blue-100">
       <div className="text-[11px] font-bold text-slate-700 uppercase mb-2">Tratamiento actual</div>
@@ -2240,19 +2307,10 @@ function CardActual({ proy }) {
         </div>
       ) : (
         <div className="space-y-1 text-sm">
-          <Row label={`Ciclos en PFS (${a.pfs_meses}m)`}
+          <Row label={etiquetaCiclos(a)}
             value={`${a.ciclos_pfs} × ${fmtCOP(a.costo_ciclo)}`} />
-          <Row label="= Costo total PFS" value={fmtCOP(a.total_pfs)} bold />
-          {a.os_meses != null && (
-            <>
-              <hr className="my-1 border-slate-200" />
-              <div className="opacity-50">
-                <Row label={`Ciclos en OS (${a.os_meses}m)`}
-                  value={`${a.ciclos_os} × ${fmtCOP(a.costo_ciclo)}`} small />
-                <Row label="Costo total OS (referencia)" value={fmtCOP(a.total_os)} small />
-              </div>
-            </>
-          )}
+          <Row label="= Costo total del tratamiento" value={fmtCOP(a.total_pfs)} bold />
+          {a.os_meses != null && <OsReferencia meses={a.os_meses} />}
         </div>
       )}
     </div>
@@ -2265,19 +2323,10 @@ function CardPropuesto({ proy }) {
     <div className="bg-white rounded-lg p-3 border border-blue-100">
       <div className="text-[11px] font-bold text-blue-800 uppercase mb-2">Tratamiento propuesto</div>
       <div className="space-y-1 text-sm">
-        <Row label={`Ciclos en PFS (${p.pfs_meses}m)`}
+        <Row label={etiquetaCiclos(p)}
           value={`${p.ciclos_pfs} × ${fmtCOP(p.costo_ciclo)}`} />
-        <Row label="= Costo total PFS" value={fmtCOP(p.total_pfs)} bold />
-        {p.os_meses != null && (
-          <>
-            <hr className="my-1 border-slate-200" />
-            <div className="opacity-50">
-              <Row label={`Ciclos en OS (${p.os_meses}m)`}
-                value={`${p.ciclos_os} × ${fmtCOP(p.costo_ciclo)}`} small />
-              <Row label="Costo total OS (referencia)" value={fmtCOP(p.total_os)} small />
-            </div>
-          </>
-        )}
+        <Row label="= Costo total del tratamiento" value={fmtCOP(p.total_pfs)} bold />
+        {p.os_meses != null && <OsReferencia meses={p.os_meses} />}
       </div>
     </div>
   )
@@ -2289,6 +2338,28 @@ function Row({ label, value, bold, small }) {
       <span className={`text-slate-600 ${small ? 'text-[11px]' : 'text-xs'}`}>{label}</span>
       <span className={`text-slate-900 ${bold ? 'font-bold' : ''} ${small ? 'text-xs' : ''}`}>{value}</span>
     </div>
+  )
+}
+
+// Selector de duración del tratamiento + número de ciclos (fija / tope)
+function DuracionEditor({ titulo, modo, ciclos, error, onModo, onCiclos, etiquetaCiclos: etq }) {
+  const conCiclos = modo === 'fija' || modo === 'tope'
+  return (
+    <>
+      <Field label={titulo} required
+        hint={modo === 'fija'
+          ? 'Se costean los ciclos del esquema (adyuvancia, neoadyuvancia, consolidación). No depende del PFS.'
+          : modo === 'tope'
+            ? 'Se costea hasta la progresión, sin pasar del máximo de ciclos (p. ej. pembrolizumab 35 ciclos).'
+            : 'Se costea hasta la progresión: ciclos = PFS × 30 ÷ días del ciclo.'}>
+        <Select value={modo || 'hasta_progresion'} onChange={v => onModo(v || 'hasta_progresion')} options={TIPOS_DURACION} />
+      </Field>
+      {conCiclos ? (
+        <Field label={etq[modo]} required error={error}>
+          <Input type="number" min="1" step="1" value={ciclos} onChange={onCiclos} placeholder="Ej. 17" error={error} />
+        </Field>
+      ) : <div />}
+    </>
   )
 }
 
@@ -2310,40 +2381,31 @@ function DiffRow({ label, value }) {
   )
 }
 
-function StepAdjuntos({ data, update }) {
-  const adjuntos = data.adjuntos || []
-  const remove = async (idx) => {
-    try { await supabase.storage.from('adjuntos').remove([adjuntos[idx].path]) } catch { /* ignore */ }
-    update('adjuntos', adjuntos.filter((_, i) => i !== idx))
-  }
-  const cambiarCategoria = (idx, categoria) =>
-    update('adjuntos', adjuntos.map((f, i) => i === idx ? { ...f, categoria } : f))
+// Bloque de adjuntos dentro de una sección del formulario (solo las categorías de esa sección)
+function SeccionAdjuntos({ adj, categorias, texto }) {
+  return (
+    <div className="md:col-span-2 mt-2 pt-4 border-t border-slate-200">
+      <div className="flex items-center gap-2 mb-1">
+        <Paperclip className="w-4 h-4 text-slate-600" />
+        <span className="text-sm font-bold text-slate-800">Documentos de soporte</span>
+        <span className="text-xs text-slate-500">(opcional)</span>
+      </div>
+      <p className="text-xs text-slate-600 mb-2">{texto} También puedes hacerlo en el paso final de Adjuntos.</p>
+      <AdjuntosPorCategoria adjuntos={adj.lista} categorias={categorias}
+        onAgregar={adj.agregar} onEliminar={adj.eliminar} />
+    </div>
+  )
+}
 
+function StepAdjuntos({ adj }) {
   return (
     <Section title="Adjuntos" description="Historia clínica, patologías, imágenes y demás soportes para presentar en el comité" icon={Paperclip}>
       <div className="md:col-span-2">
-        <p className="text-sm text-slate-600 mb-2">
-          Elige el tipo de documento y sube los archivos. Se podrán ver en la pantalla del comité, y también agregar más después desde el caso.
+        <p className="text-sm text-slate-600 mb-3">
+          Aquí están todos los documentos del caso, incluidos los que adjuntaste en los pasos anteriores.
+          Usa «Adjuntar» en el tipo de documento que corresponda. Se verán en la pantalla del comité y se pueden agregar más después desde el caso.
         </p>
-        <SubirAdjuntos onSubidos={(nuevos) => update('adjuntos', [...adjuntos, ...nuevos])} />
-
-        {adjuntos.length > 0 && (
-          <div className="mt-4 space-y-2">
-            {adjuntos.map((f, i) => (
-              <div key={f.path} className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <FileCheck2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="text-sm text-slate-800 truncate flex-1">{f.name}</span>
-                <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
-                <select value={f.categoria || 'otro'} onChange={e => cambiarCategoria(i, e.target.value)}
-                  className="px-2 py-1 border border-slate-300 rounded-md text-xs text-slate-800 bg-white shrink-0">
-                  {CATEGORIAS_ADJUNTO.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                </select>
-                <button onClick={() => remove(i)}
-                  className="text-xs text-red-600 hover:text-red-700 ml-1 font-semibold shrink-0">Eliminar</button>
-              </div>
-            ))}
-          </div>
-        )}
+        <AdjuntosPorCategoria adjuntos={adj.lista} onAgregar={adj.agregar} onEliminar={adj.eliminar} />
       </div>
     </Section>
   )

@@ -257,6 +257,17 @@ function Dato({ label, value, sub, color }) {
   )
 }
 
+// Cifra en una fila: etiqueta a la izquierda y valor a la derecha (no se solapan en tarjetas angostas)
+function FilaValor({ label, value, color, grande }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1 border-b border-niebla/10 last:border-0">
+      <span className="text-xs text-niebla-oscura">{label}</span>
+      <span className={`font-display font-bold tabular-nums whitespace-nowrap ${grande ? 'text-base' : 'text-sm'}`}
+        style={color ? { color } : undefined}>{value}</span>
+    </div>
+  )
+}
+
 // Barra mejora / igual / empeora
 function BarraCambio({ titulo, d }) {
   if (!d.n) return (
@@ -309,24 +320,20 @@ function ImpactoDecisiones({ casosValor, desenlaces, casosBase, controles }) {
         <Card>
           <Eyebrow icon={TrendingDown}>Valor propuesto en junta vs. definido</Eyebrow>
           {valor.n === 0 ? <p className="text-sm text-niebla-oscura">Aún no hay casos decididos con costo.</p> : <>
-            <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em] mb-2">Tratamiento completo</p>
-            <div className="grid grid-cols-2 gap-3">
-              <Dato label="Propuesto" value={formatCOP(valor.propTx)} />
-              <Dato label="Definido" value={formatCOP(valor.defTx)} />
-            </div>
+            <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em] mb-1">Tratamiento completo</p>
+            <FilaValor label="Propuesto en junta" value={formatCOP(valor.propTx)} grande />
+            <FilaValor label="Definido por el comité" value={formatCOP(valor.defTx)} grande />
             <div className="mt-3 rounded-xl px-3 py-2.5 border border-niebla/15">
               <Dato label={valor.difTx >= 0 ? 'Diferencia (ahorro)' : 'Diferencia (sobrecosto)'}
                 value={signoCOP(valor.difTx)} color={colorDif(valor.difTx)}
                 sub={`${fmtPct(valor.pctTx == null ? null : Math.abs(valor.pctTx))} del valor propuesto · ${valor.nConProyeccion} casos con proyección`} />
             </div>
-            <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em] mt-4 mb-2">Por ciclo</p>
-            <div className="grid grid-cols-3 gap-2">
-              <Dato label="Propuesto" value={formatCOP(valor.propCiclo)} />
-              <Dato label="Definido" value={formatCOP(valor.defCiclo)} />
-              <Dato label="Diferencia" value={signoCOP(valor.difCiclo)} color={colorDif(valor.difCiclo)} />
-            </div>
+            <p className="text-[11px] font-mono text-niebla-oscura uppercase tracking-[0.15em] mt-4 mb-1">Por ciclo</p>
+            <FilaValor label="Propuesto" value={formatCOP(valor.propCiclo)} />
+            <FilaValor label="Definido" value={formatCOP(valor.defCiclo)} />
+            <FilaValor label="Diferencia" value={signoCOP(valor.difCiclo)} color={colorDif(valor.difCiclo)} />
             <p className="text-[11px] text-niebla-oscura mt-3 leading-relaxed">
-              Tratamiento completo = costo por ciclo × ciclos esperados según el PFS del estudio. En los rechazos, el valor definido es el tratamiento que el paciente continúa.
+              Tratamiento completo = costo por ciclo × ciclos esperados: hasta la progresión según el PFS del estudio, o los del esquema en tratamientos de duración fija. En los rechazos, el valor definido es el tratamiento que el paciente continúa.
             </p>
           </>}
         </Card>

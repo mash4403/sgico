@@ -110,6 +110,7 @@ const hcCapitalizar = (s) => {
 
    El motivo viene de `diferencial.motivo_sin_diferencial`:
      'naive'             → línea 0, el paciente nunca fue tratado
+     'neoadyuvancia'     → sin tratamiento oncológico actual (la neoadyuvancia es lo propuesto)
      'falta_pfs_actual'  → hay línea previa pero no se registró el PFS
      undefined           → caso guardado antes de que existiera el campo;
                            se conserva el texto histórico para no alterar
@@ -117,6 +118,7 @@ const hcCapitalizar = (s) => {
    ────────────────────────────────────────────────────────────── */
 export const mensajeCostoPrevio = (motivo) => {
   if (motivo === 'naive') return 'Paciente naive (sin tratamiento previo). Sin cálculo de costo previo.'
+  if (motivo === 'neoadyuvancia') return 'Paciente en neoadyuvancia (sin tratamiento oncológico actual). Sin cálculo de costo previo.'
   if (motivo === 'falta_pfs_actual') return 'Falta el PFS alcanzado con el tratamiento actual.'
   return 'Paciente naive (PFS marcado como «No aplica»). Sin cálculo de costo previo.'
 }
@@ -124,6 +126,9 @@ export const mensajeCostoPrevio = (motivo) => {
 export const mensajeSinDiferencial = (motivo) => {
   if (motivo === 'falta_pfs_actual') {
     return 'Falta el PFS alcanzado con el tratamiento actual para calcular el diferencial.'
+  }
+  if (motivo === 'neoadyuvancia') {
+    return 'Paciente en neoadyuvancia (sin tratamiento oncológico actual). No hay base de comparación; solo se proyecta el costo total del propuesto.'
   }
   return 'Paciente naive (sin tratamiento previo). No hay base de comparación; solo se proyecta el costo total del propuesto.'
 }

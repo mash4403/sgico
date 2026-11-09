@@ -14,9 +14,16 @@ export const categoriaLabel = (c) =>
   CATEGORIAS_ADJUNTO.find(x => x.value === c)?.label || 'Otro'
 
 export const MAX_MB = 25
-export const ACCEPT_ADJUNTOS = '.pdf,.jpg,.jpeg,.png'
+// PDF e imágenes se ven dentro del comité; Word/Excel/HEIC se abren en otra pestaña.
+export const ACCEPT_ADJUNTOS = '.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx'
+export const FORMATOS_ADJUNTOS = 'PDF, imágenes (JPG, PNG, HEIC) o Word/Excel'
 
-export const esImagen = (f) => /^image\//.test(f?.type || '') || /\.(jpe?g|png)$/i.test(f?.name || '')
+export async function eliminarArchivoAdjunto(path) {
+  try { await supabase.storage.from('adjuntos').remove([path]) } catch { /* el registro se quita igual */ }
+}
+
+// Solo formatos que el navegador muestra (HEIC no: se abre en otra pestaña)
+export const esImagen = (f) => /^image\/(jpeg|png|webp|gif)$/.test(f?.type || '') || /\.(jpe?g|png|webp|gif)$/i.test(f?.name || '')
 export const esPdf = (f) => f?.type === 'application/pdf' || /\.pdf$/i.test(f?.name || '')
 
 const sanitize = (name) => name.replace(/[^\w.\-]/g, '_').replace(/_+/g, '_')

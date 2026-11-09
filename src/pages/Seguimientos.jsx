@@ -511,7 +511,7 @@ export default function Seguimientos() {
                   {isExpanded && s.estado !== 'realizado' && s.tipo !== 'post_comite' && (
                     <div className="px-4 py-4 border-t border-white/5" style={{ background: 'rgba(59,130,246,0.03)' }}>
                       <h4 className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-3">
-                        Evaluación Trimestral — Estado clínico, desenlaces y costos
+                        Evaluación Trimestral — Respuesta a la terapia, desenlaces y costos
                       </h4>
                       {proto && (
                         <div className="mb-4 px-3 py-2 rounded-lg bg-purple-500/5 border border-purple-500/15 text-xs text-gray-400">
@@ -520,9 +520,9 @@ export default function Seguimientos() {
                         </div>
                       )}
                       <div className="grid grid-cols-3 gap-4 max-w-3xl">
-                        {/* Estado clínico */}
+                        {/* Respuesta a la terapia (estado_clinico en BD) */}
                         <div>
-                          <label className="block text-xs text-gray-400 mb-1">Estado clínico</label>
+                          <label className="block text-xs text-gray-400 mb-1">Respuesta a la terapia</label>
                           <select value={formData[s.id]?.estado_clinico || ''}
                             onChange={e => updateField(s.id, 'estado_clinico', e.target.value)}>
                             <option value="">Seleccionar...</option>
@@ -714,7 +714,7 @@ export default function Seguimientos() {
                           </>
                         ) : (
                           <>
-                            <p>Estado: <span className="text-gray-300">{s.estado_clinico || '—'}</span></p>
+                            <p>Respuesta a la terapia: <span className="text-gray-300">{ESTADOS_CLINICOS.find(ec => ec.value === s.estado_clinico)?.label || s.estado_clinico || '—'}</span></p>
                             <p>RECIST: <span className="text-gray-300">{s.respuesta_recist || '—'}</span></p>
                             <p>PFS: <span className="text-gray-300">{s.pfs_alcanzado ? `Sí — ${formatDate(s.fecha_progresion)}` : 'No alcanzado'}</span></p>
                             <p>Vital: <span className="text-gray-300">{s.estado_vital}</span></p>

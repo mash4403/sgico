@@ -3,9 +3,10 @@ import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { X } from 'lucide-react'
 import { TIPOS_EVIDENCIA } from '../lib/evidencia'
+import { TIPOS_DURACION } from '../lib/duracion'
 
 
-const SELECT_COLS = 'id, nombre, estudio_pivotal, pfs_esperado_meses, os_esperado_meses, tipo_evidencia, evidencia_link'
+const SELECT_COLS = 'id, nombre, estudio_pivotal, pfs_esperado_meses, os_esperado_meses, tipo_evidencia, evidencia_link, tipo_duracion, ciclos_esquema, dias_ciclo'
 
 const numOrNull = (v) => {
   const s = String(v ?? '').replace(',', '.').trim()
@@ -19,6 +20,7 @@ export default function NuevoProtocoloModal({ inicial = {}, onClose, onCreado })
     nombre: '', estudio_pivotal: '', tipo_evidencia: 'fase_3', evidencia_link: '',
     linea_tratamiento: '', pfs_esperado_meses: '', os_esperado_meses: '',
     cie10: inicial.cie10 || '', diagnostico: inicial.diagnostico || '',
+    tipo_duracion: 'hasta_progresion', ciclos_esquema: '', dias_ciclo: '',
   })
   const [guardando, setGuardando] = useState(false)
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }))
@@ -26,6 +28,9 @@ export default function NuevoProtocoloModal({ inicial = {}, onClose, onCreado })
   const crear = async () => {
     if (!f.nombre.trim()) { toast.error('Escribe el nombre del protocolo'); return }
     if (!f.estudio_pivotal.trim()) { toast.error('Escribe el estudio que lo soporta'); return }
+    if (f.tipo_duracion !== 'hasta_progresion' && !(numOrNull(f.ciclos_esquema) > 0)) {
+      toast.error('Indica el número de ciclos del esquema'); return
+    }
     setGuardando(true)
     const { data, error } = await supabase.from('protocolos').insert({
       nombre: f.nombre.trim(),
@@ -35,6 +40,9 @@ export default function NuevoProtocoloModal({ inicial = {}, onClose, onCreado })
       linea_tratamiento: numOrNull(f.linea_tratamiento),
       pfs_esperado_meses: numOrNull(f.pfs_esperado_meses),
       os_esperado_meses: numOrNull(f.os_esperado_meses),
+      tipo_duracion: f.tipo_duracion,
+      ciclos_esquema: f.tipo_duracion !== 'hasta_progresion' ? Math.round(numOrNull(f.ciclos_esquema)) : null,
+      dias_ciclo: numOrNull(f.dias_ciclo) ? Math.round(numOrNull(f.dias_ciclo)) : null,
       cie10: f.cie10.trim().toUpperCase() || null,
       diagnostico: f.diagnostico.trim().slice(0, 200) || null,
       activo: true,
@@ -91,6 +99,24 @@ export default function NuevoProtocoloModal({ inicial = {}, onClose, onCreado })
             <label className={lbl}>OS esperado (meses)</label>
             <input type="number" step="0.1" min="0" value={f.os_esperado_meses}
               onChange={e => set('os_esperado_meses', e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className={lbl}>Duración del tratamiento</label>
+            <select value={f.tipo_duracion} onChange={e => set('tipo_duracion', e.target.value)} className={inputCls}>
+              {TIPOS_DURACION.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={lbl}>{f.tipo_duracion === 'tope' ? 'Máx. ciclos' : 'Ciclos'}{f.tipo_duracion !== 'hasta_progresion' && <span className="text-red-600"> *</span>}</label>
+              <input type="number" min="1" step="1" value={f.ciclos_esquema} disabled={f.tipo_duracion === 'hasta_progresion'}
+                onChange={e => set('ciclos_esquema', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={lbl}>Días del ciclo</label>
+              <input type="number" min="1" step="1" value={f.dias_ciclo} placeholder="21"
+                onChange={e => set('dias_ciclo', e.target.value)} className={inputCls} />
+            </div>
           </div>
           <div>
             <label className={lbl}>CIE-10</label>

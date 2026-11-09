@@ -9,6 +9,7 @@ import { copiarTextoAlPortapapeles } from '../lib/clipboard'
 import toast from 'react-hot-toast'
 import AdjuntosVisor from '../components/AdjuntosVisor'
 import { agregarAdjuntosACaso, categoriaLabel } from '../lib/adjuntos'
+import { etiquetaCiclos } from '../lib/duracion'
 import {
   ArrowLeft, Printer, Gavel, Clock, FileText, Download,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
@@ -387,6 +388,10 @@ export default function CasoDetalle() {
         <KV label="Justificación clínica" value={caso.justificacion_clinica || caso.justificacion} full />
       </Section>
 
+      {(caso.decision === 'aprobado' || caso.decision === 'modificado') && (
+        <CostoAprobadoEditor caso={caso} onGuardado={(v) => setCaso(c => ({ ...c, costo_molecula_aprobada: v }))} />
+      )}
+
       {caso.proyeccion_costos && (
         <ProyeccionCostosSection proyeccion={caso.proyeccion_costos} />
       )}
@@ -548,6 +553,76 @@ export default function CasoDetalle() {
 /* ──────────────────────────────────────────────────────────────
    Sección de proyección — solo PFS para cálculo, OS atenuado
    ────────────────────────────────────────────────────────────── */
+// Costo por ciclo que aprobó el comité. Viene con el propuesto por defecto y se
+// puede cambiar después del comité (p. ej. cuando se negocia el precio).
+function CostoAprobadoEditor({ caso, onGuardado }) {
+  const ap = Number(caso.costo_molecula_aprobada)
+  const actual = ap > 0 ? ap : (caso.costo_estimado != null ? Number(caso.costo_estimado) : null)
+  const [editando, setEditando] = useState(false)
+  const [valor, setValor] = useState('')
+  const [guardando, setGuardando] = useState(false)
+
+  const guardar = async () => {
+    const n = Number(String(valor).replace(/[^\d.]/g, ''))
+    if (!valor || isNaN(n) || n <= 0) { toast.error('Escribe un costo por ciclo válido'); return }
+    setGuardando(true)
+    const { data, error } = await supabase.from('casos_comite')
+      .update({ costo_molecula_aprobada: n }).eq('id', caso.id).select('id')
+    setGuardando(false)
+    if (error || !data?.length) { toast.error(`No se pudo guardar${error ? `: ${error.message}` : ''}`); return }
+    onGuardado(n)
+    setEditando(false)
+    toast.success('Costo aprobado actualizado')
+  }
+
+  const dif = actual != null && caso.costo_estimado != null ? Number(caso.costo_estimado) - actual : null
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-300 p-6 mb-6 print:shadow-none">
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+          <DollarSign className="w-5 h-5" />
+        </div>
+        <div className="flex-1 min-w-[14rem]">
+          <h2 className="text-lg font-bold text-slate-900">Costo aprobado por el comité</h2>
+          <p className="text-xs text-slate-600">
+            Por ciclo. Viene con el propuesto ({fmtCOP(caso.costo_estimado)}); cámbialo si el comité aprobó otro valor.
+          </p>
+        </div>
+        {!editando ? (
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-xl font-bold text-slate-900 tabular-nums">{fmtCOP(actual)}</div>
+              {dif != null && dif !== 0 && (
+                <div className={`text-xs font-semibold ${dif > 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {dif > 0 ? 'Ahorro' : 'Sobrecosto'} de {fmtCOP(Math.abs(dif))} por ciclo
+                </div>
+              )}
+            </div>
+            <button type="button" onClick={() => { setValor(actual != null ? String(actual) : ''); setEditando(true) }}
+              className="btn-fuerte rounded-lg !px-4 !py-2 !text-sm font-semibold print:hidden">
+              Cambiar
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 print:hidden">
+            <input type="number" min="0" value={valor} onChange={e => setValor(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEditando(false) }}
+              className="w-44 px-3 py-2 border-2 border-slate-300 rounded-lg text-sm text-slate-900 bg-white" />
+            <button type="button" onClick={guardar} disabled={guardando}
+              className="btn-fuerte rounded-lg !px-4 !py-2 !text-sm font-semibold disabled:opacity-50">
+              {guardando ? 'Guardando…' : 'Guardar'}
+            </button>
+            <button type="button" onClick={() => setEditando(false)} disabled={guardando}
+              className="px-3 py-2 rounded-lg bg-white border border-slate-400 text-slate-700 text-sm">
+              Cancelar
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ProyeccionCostosSection({ proyeccion }) {
   const p = proyeccion
   const naive = p.diferencial?.es_naive
@@ -561,18 +636,15 @@ function ProyeccionCostosSection({ proyeccion }) {
         </div>
         <div className="flex-1">
           <h2 className="text-lg font-bold text-slate-900">Proyección de impacto económico</h2>
-          <p className="text-xs text-slate-600">Cálculo basado en PFS · OS mostrado solo como referencia clínica</p>
+          <p className="text-xs text-slate-600">Costo hasta la progresión (PFS) o por los ciclos del esquema si es de duración fija · la SG no entra en el costo</p>
         </div>
-        <span className="text-[10px] font-semibold text-blue-700 bg-blue-100 px-2 py-1 rounded shrink-0">
-          PFS
-        </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         {/* ACTUAL */}
         <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
           <div className="text-xs font-bold text-slate-700 uppercase mb-3">🩺 Tratamiento actual</div>
-          {p.actual?.pfs_meses == null ? (
+          {p.actual?.total_pfs == null ? (
             <div className="text-sm text-slate-500 italic py-3">
               {mensajeCostoPrevio(motivo)}
             </div>
@@ -580,16 +652,13 @@ function ProyeccionCostosSection({ proyeccion }) {
             <>
               <ProyRow label="Costo por ciclo" value={fmtCOP(p.actual?.costo_ciclo)} />
               <ProyRow label="Duración del ciclo" value={`${p.actual?.duracion_dias} días`} />
-              <ProyRow label="PFS estimado" value={`${p.actual?.pfs_meses} meses`} />
+              {p.actual?.pfs_meses != null && <ProyRow label="PFS estimado" value={`${p.actual.pfs_meses} meses`} />}
+              <ProyRow label={etiquetaCiclos(p.actual)} value={`${p.actual?.ciclos_pfs} ciclos`} />
               <hr className="my-2 border-slate-300" />
-              <ProyRow label={`Costo total PFS (${p.actual?.ciclos_pfs} ciclos)`}
-                value={fmtCOP(p.actual?.total_pfs)} bold />
+              <ProyRow label="Costo total del tratamiento" value={fmtCOP(p.actual?.total_pfs)} bold />
               {p.actual?.os_meses != null && (
-                <div className="opacity-50 mt-2 pt-2 border-t border-slate-200">
-                  <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Referencia OS</div>
-                  <ProyRow label={`OS estimado`} value={`${p.actual.os_meses} meses`} small />
-                  <ProyRow label={`Costo total OS (${p.actual.ciclos_os} ciclos)`}
-                    value={fmtCOP(p.actual.total_os)} small />
+                <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-500">
+                  SG (OS) de referencia: {p.actual.os_meses} meses · no entra en el costo
                 </div>
               )}
             </>
@@ -601,16 +670,13 @@ function ProyeccionCostosSection({ proyeccion }) {
           <div className="text-xs font-bold text-blue-800 uppercase mb-3">💊 Tratamiento propuesto</div>
           <ProyRow label="Costo por ciclo" value={fmtCOP(p.propuesto?.costo_ciclo)} />
           <ProyRow label="Duración del ciclo" value={`${p.propuesto?.duracion_dias} días`} />
-          <ProyRow label="PFS esperado" value={`${p.propuesto?.pfs_meses} meses`} />
+          {p.propuesto?.pfs_meses != null && <ProyRow label="PFS esperado" value={`${p.propuesto.pfs_meses} meses`} />}
+          <ProyRow label={etiquetaCiclos(p.propuesto)} value={`${p.propuesto?.ciclos_pfs} ciclos`} />
           <hr className="my-2 border-blue-300" />
-          <ProyRow label={`Costo total PFS (${p.propuesto?.ciclos_pfs} ciclos)`}
-            value={fmtCOP(p.propuesto?.total_pfs)} bold />
+          <ProyRow label="Costo total del tratamiento" value={fmtCOP(p.propuesto?.total_pfs)} bold />
           {p.propuesto?.os_meses != null && (
-            <div className="opacity-50 mt-2 pt-2 border-t border-blue-200">
-              <div className="text-[10px] uppercase font-semibold text-blue-700 mb-1">Referencia OS</div>
-              <ProyRow label={`OS esperado`} value={`${p.propuesto.os_meses} meses`} small />
-              <ProyRow label={`Costo total OS (${p.propuesto.ciclos_os} ciclos)`}
-                value={fmtCOP(p.propuesto.total_os)} small />
+            <div className="mt-2 pt-2 border-t border-blue-200 text-xs text-slate-500">
+              SG (OS) de referencia: {p.propuesto.os_meses} meses · no entra en el costo
             </div>
           )}
         </div>
@@ -626,9 +692,13 @@ function ProyeccionCostosSection({ proyeccion }) {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <DiffBox label="Diferencia hasta progresión (PFS)" value={p.diferencial?.diferencia_pfs} />
-            <DiffBox label={`Costo por mes de PFS ganado (+${p.diferencial?.ganancia_pfs_meses ?? 0}m)`}
-              value={p.diferencial?.costo_por_mes_pfs_ganado} />
+            <DiffBox label="Diferencia en el costo del tratamiento" value={p.diferencial?.diferencia_pfs} />
+            {p.diferencial?.ganancia_pfs_meses != null ? (
+              <DiffBox label={`Costo por mes de PFS ganado (${p.diferencial.ganancia_pfs_meses > 0 ? '+' : ''}${p.diferencial.ganancia_pfs_meses}m)`}
+                value={p.diferencial?.costo_por_mes_pfs_ganado} />
+            ) : (
+              <div className="text-xs text-slate-600 self-center">Costo por mes de PFS ganado: no aplica en tratamientos de duración fija.</div>
+            )}
           </div>
         )}
       </div>

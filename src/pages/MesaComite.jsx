@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { formatDateTime, generarTextoHistoriaClinica } from '../lib/utils'
@@ -79,7 +79,9 @@ const esAprobacionFinal = (d) => d === 'aprobado' || d === 'modificado'
 
 // Costo aprobado inicial: el ya aprobado, o el propuesto como respaldo (string para el input)
 const costoAprobadoInicial = (caso) => {
-  const v = caso?.costo_molecula_aprobada ?? caso?.costo_estimado
+  // La columna tiene DEFAULT 0: 0 = aún no registrado → se precarga el propuesto
+  const ap = Number(caso?.costo_molecula_aprobada)
+  const v = ap > 0 ? ap : caso?.costo_estimado
   return v == null ? '' : String(v)
 }
 
@@ -111,15 +113,29 @@ export default function MesaComite() {
     return () => window.removeEventListener('keydown', onKey)
   }, [totalSecciones])
 
+  // Modo presentación: oculta la barra lateral y usa todo el ancho. Si el
+  // navegador lo permite, además pasa a pantalla completa real (Esc para salir).
   useEffect(() => {
-    const onChange = () => setPantallaCompleta(!!document.fullscreenElement)
+    const onChange = () => { if (!document.fullscreenElement) setPantallaCompleta(false) }
     document.addEventListener('fullscreenchange', onChange)
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
 
+  useEffect(() => {
+    document.body.classList.toggle('modo-presentacion', pantallaCompleta)
+    return () => document.body.classList.remove('modo-presentacion')
+  }, [pantallaCompleta])
+
+  useEffect(() => () => { if (document.fullscreenElement) document.exitFullscreen?.() }, [])
+
   const togglePantallaCompleta = () => {
-    if (document.fullscreenElement) document.exitFullscreen?.()
-    else document.documentElement.requestFullscreen?.().catch(() => toast.error('El navegador no permitió la pantalla completa'))
+    if (pantallaCompleta) {
+      setPantallaCompleta(false)
+      if (document.fullscreenElement) document.exitFullscreen?.()
+    } else {
+      setPantallaCompleta(true)
+      document.documentElement.requestFullscreen?.().catch(() => { /* queda el modo presentación sin barra lateral */ })
+    }
   }
 
   async function cargarDatos() {
@@ -392,7 +408,7 @@ export default function MesaComite() {
   const badgeLabel = DECISION_LABEL[caso.decision] || caso.decision
   const diagnostico = [caso.cie10, caso.diagnostico_descripcion].filter(Boolean).join(' — ')
 
-  const textoGrande = `${inputBase} resize-none flex-1 min-h-[16rem] !text-lg leading-relaxed`
+  const textoGrande = `${inputBase} resize-y flex-1 min-h-[24rem] !text-lg leading-relaxed`
   const secciones = [
     {
       key: 'resumen', title: 'Resumen clínico', icon: ClipboardList,
@@ -403,7 +419,7 @@ export default function MesaComite() {
         </button>
       ),
       content: (
-        <textarea
+        <TextoLargo
           value={form.resumen_clinico}
           onChange={e => setField('resumen_clinico', e.target.value)}
           disabled={readOnly}
@@ -424,7 +440,7 @@ export default function MesaComite() {
     {
       key: 'discusion', title: 'Discusión', icon: MessagesSquare,
       content: (
-        <textarea
+        <TextoLargo
           value={form.discusion}
           onChange={e => setField('discusion', e.target.value)}
           disabled={readOnly}
@@ -497,7 +513,7 @@ export default function MesaComite() {
           )}
           <div className="flex-1 flex flex-col">
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1">Decisión (narrativa)</label>
-            <textarea
+            <TextoLargo
               value={form.decision}
               onChange={e => setField('decision', e.target.value)}
               disabled={readOnly}
@@ -510,7 +526,7 @@ export default function MesaComite() {
     {
       key: 'observaciones', title: 'Observaciones', icon: ClipboardList,
       content: (
-        <textarea
+        <TextoLargo
           value={form.observaciones}
           onChange={e => setField('observaciones', e.target.value)}
           disabled={readOnly}
@@ -523,7 +539,7 @@ export default function MesaComite() {
   const sec = secciones[actual]
 
   return (
-    <div className="max-w-7xl mx-auto p-4 lg:p-6 print:p-0 print:max-w-full">
+    <div className={`${pantallaCompleta ? 'max-w-none min-h-screen' : 'max-w-7xl'} mx-auto p-4 lg:p-6 print:p-0 print:max-w-full`}>
       {/* Header */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-300 px-6 py-4 mb-4 print:shadow-none print:border print:rounded-none">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4 print:hidden">
@@ -531,10 +547,18 @@ export default function MesaComite() {
             className="flex items-center gap-2 text-sm text-slate-700 hover:text-slate-900 font-medium">
             <ArrowLeft className="w-4 h-4" /> Volver al caso
           </button>
-          <button onClick={() => setPreview(true)}
-            className="flex items-center gap-2 text-sm text-blue-700 hover:text-blue-900 font-medium">
-            <FileText className="w-4 h-4" /> Vista previa del acta
-          </button>
+          <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+            <button onClick={() => setPreview(true)}
+              className="flex items-center gap-2 text-sm text-blue-700 hover:text-blue-900 font-medium">
+              <FileText className="w-4 h-4" /> Vista previa del acta
+            </button>
+            <button type="button" onClick={togglePantallaCompleta}
+              title={pantallaCompleta ? 'Salir de pantalla completa (Esc)' : 'Presentar a pantalla completa'}
+              className="btn-fuerte flex items-center gap-2 whitespace-nowrap rounded-lg !px-4 !py-2 !text-sm font-semibold">
+              {pantallaCompleta ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              {pantallaCompleta ? 'Salir (Esc)' : 'Pantalla completa'}
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -566,11 +590,6 @@ export default function MesaComite() {
             )
           })}
         </div>
-        <button type="button" onClick={togglePantallaCompleta}
-          title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shrink-0">
-          {pantallaCompleta ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-        </button>
       </div>
 
       {/* Tema actual: ocupa toda la pantalla */}
@@ -626,6 +645,19 @@ export default function MesaComite() {
       `}</style>
     </div>
   )
+}
+
+// Textarea que crece con el texto: los textos largos se leen completos, sin
+// barra de desplazamiento interna (también en el acta cerrada, en solo lectura).
+function TextoLargo(props) {
+  const ref = useRef(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.minHeight = ''
+    if (el.scrollHeight > el.clientHeight) el.style.minHeight = `${el.scrollHeight + 4}px`
+  }, [props.value])
+  return <textarea ref={ref} {...props} />
 }
 
 function SectionCard({ title, icon: Icon, actions, children, fill }) {

@@ -549,3 +549,24 @@ svg:not([viewBox="0 0 120 120"]) [fill="#6E8A90"], svg:not([viewBox="0 0 120 120
   }
   .print-avoid-break { break-inside: avoid; page-break-inside: avoid; }
 }
+
+/* ── Botón de alto contraste (Adjuntar) ──────────────────────── */
+.btn-fuerte, label[class].btn-fuerte {
+  background-color: #5B3878; color: #FFFFFF;
+  border: 1px solid #4A2D63;
+  box-shadow: 0 1px 2px rgba(30, 20, 40, .25);
+}
+label[class].btn-fuerte { font-size: 14px; font-weight: 600; }
+.btn-fuerte:hover { background-color: #4A2D63; }
+.btn-fuerte:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-fuerte[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn-fuerte, :root:not([data-theme="light"]) label[class].btn-fuerte { background-color: #D9C2EE; color: #1E1428; border-color: #EBDDF7; }
+  :root:not([data-theme="light"]) .btn-fuerte:hover { background-color: #EBDDF7; }
+}
+:root[data-theme="dark"] .btn-fuerte, :root[data-theme="dark"] label[class].btn-fuerte { background-color: #D9C2EE; color: #1E1428; border-color: #EBDDF7; }
+:root[data-theme="dark"] .btn-fuerte:hover { background-color: #EBDDF7; }
+
+/* ── Modo presentación del comité: oculta la barra lateral ───── */
+body.modo-presentacion .layout-sidebar { display: none; }
+body.modo-presentacion .layout-contenido { max-width: none; padding: 0; }
