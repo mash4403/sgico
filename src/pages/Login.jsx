@@ -9,21 +9,25 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPass, setShowPass] = useState(false)
-  const [isSignUp, setIsSignUp] = useState(false)
+  const [recuperar, setRecuperar] = useState(false)
   const [loading, setLoading] = useState(false)
 
+  // Las cuentas las crea un administrador (invitación desde Supabase): aquí no hay registro.
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     try {
-      const { error } = isSignUp
-        ? await supabase.auth.signUp({ email, password })
-        : await supabase.auth.signInWithPassword({ email, password })
-
-      if (error) throw error
-      if (isSignUp) toast.success('Cuenta creada. Revisa tu email para confirmar.')
+      if (recuperar) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
+        if (error) throw error
+        toast.success('Si el correo está registrado, te llegará un enlace para crear una nueva contraseña.')
+        setRecuperar(false)
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error) throw error
+      }
     } catch (err) {
-      toast.error(err.message)
+      toast.error(err.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos' : err.message)
     } finally {
       setLoading(false)
     }
@@ -54,30 +58,33 @@ export default function Login() {
             <input type="email" value={email} onChange={e => setEmail(e.target.value)}
               placeholder="usuario@institucion.co" required />
           </div>
-          <div>
+          {!recuperar && <div>
             <label className="block text-xs text-niebla mb-1.5 font-medium">Contraseña</label>
             <div className="relative">
               <input type={showPass ? 'text' : 'password'} value={password}
                 onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••" required minLength={6} className="pr-10" />
+                placeholder="••••••••" required className="pr-10" />
               <button type="button" onClick={() => setShowPass(s => !s)}
                 title={showPass ? 'Ocultar contraseña' : 'Ver contraseña'}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-niebla-oscura hover:text-niebla">
                 {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-          </div>
+          </div>}
           <button type="submit" disabled={loading}
             className="w-full py-2.5 rounded-full font-display font-semibold text-sm text-tinta bg-pulso
                        hover:bg-pulso-oscuro transition-all disabled:opacity-50">
-            {loading ? 'Cargando...' : isSignUp ? 'Crear cuenta' : 'Ingresar'}
+            {loading ? 'Cargando...' : recuperar ? 'Enviar enlace' : 'Ingresar'}
           </button>
         </form>
 
-        <button onClick={() => setIsSignUp(!isSignUp)}
+        <button type="button" onClick={() => setRecuperar(r => !r)}
           className="w-full mt-4 text-center text-sm text-niebla-oscura hover:text-niebla transition-colors">
-          {isSignUp ? '¿Ya tienes cuenta? Ingresar' : '¿Primera vez? Crear cuenta'}
+          {recuperar ? 'Volver a ingresar' : '¿Olvidaste tu contraseña?'}
         </button>
+        <p className="mt-2 text-center text-xs text-niebla-oscura">
+          ¿No tienes cuenta? Solicítala al administrador del comité.
+        </p>
 
         {/* Wordmark */}
         <div className="mt-10 flex items-center justify-center gap-1.5 text-xs text-niebla-oscura">

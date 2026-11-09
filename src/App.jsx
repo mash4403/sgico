@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
-import { supabase } from './lib/supabase'
+import { supabase, tipoEnlaceInicial } from './lib/supabase'
+import ErrorBoundary from './components/ErrorBoundary'
+import NuevaContrasena from './pages/NuevaContrasena'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -17,14 +19,18 @@ import MiembrosComite from './pages/MiembrosComite'
 export default function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Invitación o recuperación: el usuario entra con sesión pero debe crear su contraseña
+  const [definirContrasena, setDefinirContrasena] = useState(
+    tipoEnlaceInicial === 'invite' || tipoEnlaceInicial === 'recovery' ? tipoEnlaceInicial : null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session)
+      if (event === 'PASSWORD_RECOVERY') setDefinirContrasena('recovery')
     })
     return () => subscription.unsubscribe()
   }, [])
@@ -49,9 +55,19 @@ export default function App() {
     )
   }
 
+  if (definirContrasena) {
+    return (
+      <>
+        <NuevaContrasena invitacion={definirContrasena === 'invite'} onListo={() => setDefinirContrasena(null)} />
+        <Toaster position="top-right" />
+      </>
+    )
+  }
+
   return (
     <>
       <Layout session={session}>
+        <ErrorBoundary>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/casos" element={<Casos />} />
@@ -65,6 +81,7 @@ export default function App() {
           <Route path="/miembros" element={<MiembrosComite />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ErrorBoundary>
       </Layout>
       <Toaster position="top-right" />
     </>

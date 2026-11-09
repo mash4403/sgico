@@ -19,6 +19,23 @@
 
 BEGIN;
 
+-- ── GUARDA — solo datos de prueba ──────────────────────────
+-- Aborta si hay pacientes que no son de prueba (documento distinto de
+-- 9000000xx). Para borrarlos de todas formas, agrega justo debajo de BEGIN:
+--   SET LOCAL sgico.confirmo_reset = 'BORRAR-TODO';
+DO $$
+DECLARE v_reales int;
+BEGIN
+  SELECT count(*) INTO v_reales FROM pacientes WHERE documento NOT LIKE '9000000%';
+  IF v_reales > 0 AND current_setting('sgico.confirmo_reset', true) IS DISTINCT FROM 'BORRAR-TODO' THEN
+    RAISE EXCEPTION 'ABORT: hay % pacientes que no son de prueba. No se borró nada.', v_reales
+      USING HINT = 'Si de verdad quieres borrarlos: SET LOCAL sgico.confirmo_reset = ''BORRAR-TODO''; debajo de BEGIN.';
+  END IF;
+END $$;
+
+-- Permite borrar actas firmadas (bloqueadas desde la migración 023)
+SET LOCAL sgico.mantenimiento = 'si';
+
 -- ── PASO 0 — Inventario antes ──────────────────────────────
 DO $$
 DECLARE v_pac INT; v_cas INT; v_act INT; v_seg INT; v_ses INT; v_mie INT;
