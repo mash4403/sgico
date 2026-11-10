@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { INSTITUCION } from '../lib/institucion'
 import { formatDate, formatDateTime } from '../lib/utils'
 import LogoInoos from './LogoInoos'
+import { resumenAntropometria } from '../lib/antropometria'
 
 const GENERO_LABEL = { M: 'Masculino', F: 'Femenino', I: 'Indeterminado' }
 const ECOG_LABEL = {
@@ -113,6 +114,7 @@ export default function ActaDocumento({ caso, form, acta }) {
               ['Fecha de diagnóstico', formatDate(caso?.fecha_diagnostico)],
               ['ECOG', ECOG_LABEL[caso?.ecog] || caso?.ecog],
               ['Dolor (EVA)', caso?.eva != null ? `${caso.eva} / 10` : null],
+              ['Peso · talla · SC', resumenAntropometria(caso)],
               ['Comorbilidades', caso?.comorbilidades],
             ]} />
           </div>

@@ -10,6 +10,7 @@ import toast from 'react-hot-toast'
 import AdjuntosVisor from '../components/AdjuntosVisor'
 import { agregarAdjuntosACaso, categoriaLabel } from '../lib/adjuntos'
 import { etiquetaCiclos } from '../lib/duracion'
+import { superficieCorporal, imc, categoriaImc } from '../lib/antropometria'
 import {
   ArrowLeft, Printer, Gavel, Clock, FileText, Download,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
@@ -337,6 +338,16 @@ export default function CasoDetalle() {
       <Section title="Capacidad funcional" icon={Activity}>
         <KV label="ECOG"                 value={ECOG_LABELS[caso.ecog] || caso.ecog} />
         <KV label="EVA (dolor)"          value={caso.eva != null ? `${caso.eva} / 10` : null} />
+        <KV label="Peso"                 value={caso.peso_kg != null ? `${Number(caso.peso_kg).toLocaleString('es-CO')} kg` : null} />
+        <KV label="Talla"                value={caso.talla_cm != null ? `${Number(caso.talla_cm).toLocaleString('es-CO')} cm` : null} />
+        <KV label="Superficie corporal"  value={(() => {
+          const sc = caso.superficie_corporal ?? superficieCorporal(caso.peso_kg, caso.talla_cm)
+          return sc != null ? `${Number(sc).toLocaleString('es-CO', { minimumFractionDigits: 2 })} m²` : null
+        })()} />
+        <KV label="IMC"                  value={(() => {
+          const i = imc(caso.peso_kg, caso.talla_cm)
+          return i != null ? `${i.toLocaleString('es-CO')} kg/m² · ${categoriaImc(i)}` : null
+        })()} />
         <KV label="Estado físico actual" value={caso.estado_fisico} full />
       </Section>
 

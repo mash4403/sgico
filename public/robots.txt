@@ -1,0 +1,6 @@
+# SGICO es una aplicación interna: no debe aparecer en buscadores.
+# No se bloquea el rastreo aquí a propósito: los buscadores deben poder leer
+# la orden "noindex" (encabezado X-Robots-Tag y meta robots) para no indexarla
+# o retirarla del índice si ya estuviera.
+User-agent: *
+Disallow:

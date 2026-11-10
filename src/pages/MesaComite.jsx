@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { resumenAntropometria } from '../lib/antropometria'
 import { supabase } from '../lib/supabase'
 import { formatDateTime, generarTextoHistoriaClinica } from '../lib/utils'
 import { copiarTextoAlPortapapeles } from '../lib/clipboard'
@@ -742,6 +743,7 @@ function generarResumenClinico(caso) {
   const evaTxt = caso.eva != null ? `${caso.eva}/10` : 'No registrado'
   const bloque2 = [
     `ECOG: ${resumenVal(caso.ecog)} · EVA: ${evaTxt}`,
+    `PESO / TALLA: ${resumenAntropometria(caso) || 'No registrado'}`,
     `COMORBILIDADES: ${resumenVal(caso.comorbilidades)}`,
     `HÁBITOS: ${tabaco}, ${alcohol}`,
   ].join('\n')

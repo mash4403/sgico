@@ -10,6 +10,7 @@ import { TIPOS_EVIDENCIA } from '../lib/evidencia'
 import { AdjuntosPorCategoria } from '../components/AdjuntosVisor'
 import { eliminarArchivoAdjunto } from '../lib/adjuntos'
 import { TIPOS_DURACION, ciclosSegunDuracion, etiquetaCiclos } from '../lib/duracion'
+import { superficieCorporal, imc, categoriaImc, errorAntropometria, aNumero, RANGO_PESO, RANGO_TALLA } from '../lib/antropometria'
 import {
   ChevronLeft, ChevronRight, Send, Check,
   Building2, User, Stethoscope, HeartPulse, FlaskConical,
@@ -297,6 +298,7 @@ const initialState = {
 
   // 5. Capacidad funcional
   ecog: '', eva: '', estado_fisico: '',
+  peso_kg: '', talla_cm: '',
 
   // 6. Estudios (paraclínicos)
   estudios_imagenes: '', imagenes_list: [], estudios_laboratorio: '',
@@ -541,6 +543,12 @@ export default function PresentacionComite() {
         req('ecog', { allowNA: false })
         req('eva')
         req('estado_fisico', { allowNA: false })
+        {
+          const ep = errorAntropometria(data.peso_kg, RANGO_PESO, 'kg')
+          const et = errorAntropometria(data.talla_cm, RANGO_TALLA, 'cm')
+          if (ep) errs.peso_kg = ep
+          if (et) errs.talla_cm = et
+        }
         break
       case 5:
         // Estudios (paraclínicos): solo laboratorio requerido; imágenes opcionales.
@@ -811,6 +819,10 @@ export default function PresentacionComite() {
         ecog: clean(data.ecog),
         eva: (data.eva === '' || data.eva === NA) ? null : Number(data.eva),
         estado_fisico: clean(data.estado_fisico),
+        // Solo valores dentro de rango (al agendar un caso incompleto no se valida)
+        peso_kg: errorAntropometria(data.peso_kg, RANGO_PESO, 'kg') ? null : aNumero(data.peso_kg),
+        talla_cm: errorAntropometria(data.talla_cm, RANGO_TALLA, 'cm') ? null : aNumero(data.talla_cm),
+        superficie_corporal: superficieCorporal(data.peso_kg, data.talla_cm),
         comorbilidades: cleanAntecedente(data.comorbilidades),
         alergias: cleanAntecedente(data.alergias),
         habito_tabaquico: cleanAntecedente(data.habito_tabaquico),
@@ -1785,12 +1797,46 @@ function StepCapacidad({ data, update, errors, toggleNA }) {
             label: `${i}${i === 0 ? ' — sin dolor' : i === 10 ? ' — máximo dolor' : ''}`,
           }))} error={errors.eva} />
       </Field>
+      <Field label="Peso (kg)" required error={errors.peso_kg}>
+        <Input type="number" inputMode="decimal" step="0.1" min={RANGO_PESO.min} max={RANGO_PESO.max}
+          value={data.peso_kg} onChange={v => update('peso_kg', v)} placeholder="Ej. 68,5" error={errors.peso_kg} />
+      </Field>
+      <Field label="Talla (cm)" required error={errors.talla_cm}>
+        <Input type="number" inputMode="decimal" step="0.1" min={RANGO_TALLA.min} max={RANGO_TALLA.max}
+          value={data.talla_cm} onChange={v => update('talla_cm', v)} placeholder="Ej. 165" error={errors.talla_cm} />
+      </Field>
+      <SuperficieCorporal peso={data.peso_kg} talla={data.talla_cm} />
       <Field label="Estado físico actual — datos relevantes" required full error={errors.estado_fisico}>
         <TextArea value={data.estado_fisico} onChange={v => update('estado_fisico', v)}
-          placeholder="Ej. Peso 62 kg, IMC 22. Buen estado general, deambula sin apoyo. Dolor óseo lumbar controlado con analgesia."
+          placeholder="Ej. Buen estado general, deambula sin apoyo. Dolor óseo lumbar controlado con analgesia."
           error={errors.estado_fisico} />
       </Field>
     </Section>
+  )
+}
+
+// Cálculo automático a partir del peso y la talla (Mosteller)
+function SuperficieCorporal({ peso, talla }) {
+  const sc = superficieCorporal(peso, talla)
+  const i = imc(peso, talla)
+  const fmt = (n, d) => n.toLocaleString('es-CO', { minimumFractionDigits: d, maximumFractionDigits: d })
+  return (
+    <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="rounded-lg border-2 border-blue-200 bg-blue-50 px-4 py-3">
+        <div className="text-xs font-semibold text-slate-600">Superficie corporal (Mosteller)</div>
+        <div className="text-2xl font-bold text-slate-900">
+          {sc != null ? <>{fmt(sc, 2)} <span className="text-base font-semibold">m²</span></> : '—'}
+        </div>
+        <div className="text-[11px] text-slate-500">√(talla cm × peso kg ÷ 3600) · se calcula sola</div>
+      </div>
+      <div className="rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="text-xs font-semibold text-slate-600">Índice de masa corporal</div>
+        <div className="text-2xl font-bold text-slate-900">
+          {i != null ? <>{fmt(i, 1)} <span className="text-base font-semibold">kg/m²</span></> : '—'}
+        </div>
+        <div className="text-[11px] text-slate-500">{i != null ? categoriaImc(i) + ' (referencia OMS adultos)' : 'Ingresa peso y talla'}</div>
+      </div>
+    </div>
   )
 }
 
