@@ -11,7 +11,7 @@ import NuevoComiteModal from './NuevoComiteModal'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/presentar', icon: ClipboardPlus, label: 'Presentar caso' },
+  { to: '/presentar', icon: ClipboardPlus, label: 'Inscribir caso' },
   { to: '/agenda', icon: CalendarClock, label: 'Casos para comité' },
   { to: '/casos', icon: FolderOpen, label: 'Casos' },
   { to: '/comites', icon: Landmark, label: 'Comités' },

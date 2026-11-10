@@ -71,7 +71,7 @@ export default function NuevoComiteModal({ onClose, onCreado }) {
           placeholder="Lugar, hora, enlace de la reunión…" className={`${inputCls} resize-none mb-3`} />
 
         <p className="text-xs text-slate-500 mb-4">
-          Luego podrás agregar casos a este comité desde «Presentar caso» o desde el detalle de cada caso.
+          Luego podrás agregar casos a este comité desde «Inscribir caso» o desde el detalle de cada caso.
         </p>
 
         <div className="flex justify-end gap-2">

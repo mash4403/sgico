@@ -885,7 +885,7 @@ export default function PresentacionComite() {
       }
 
       localStorage.removeItem(DRAFT_KEY)
-      toast.success('Caso presentado al comité', { icon: '🎉' })
+      toast.success('Caso inscrito al comité', { icon: '🎉' })
       navigate(`/casos/${casoId}`)
     } catch (e) {
       console.error('Error al presentar:', e)
@@ -901,7 +901,7 @@ export default function PresentacionComite() {
     <div className="max-w-5xl mx-auto p-4 lg:p-6">
       <div className="mb-6">
         <h1 className="text-2xl lg:text-3xl font-bold text-white">
-          Presentación al Comité de Tumores
+          Inscripción de caso al Comité de Tumores
         </h1>
         <p className="text-slate-300 text-sm mt-1">
           Complete la información clínica y administrativa para inscribir el caso
@@ -978,7 +978,7 @@ export default function PresentacionComite() {
             <button onClick={presentar} disabled={submitting}
               className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 text-white hover:from-emerald-700 hover:to-emerald-800 disabled:opacity-50">
               <Send className="w-4 h-4" />
-              {submitting ? 'Presentando...' : 'Presentar al comité'}
+              {submitting ? 'Inscribiendo…' : 'Inscribir caso'}
             </button>
           )}
         </div>

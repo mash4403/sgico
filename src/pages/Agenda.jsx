@@ -94,7 +94,7 @@ export default function Agenda() {
           <CalendarClock className="mx-auto mb-3 text-niebla-oscura" size={28} />
           <p className="text-niebla">No hay casos agendados.</p>
           <p className="text-sm text-niebla-oscura mt-1">
-            Prepara un caso en <span className="text-pulso">Presentar caso</span> y usa “Agendar para comité”.
+            Prepara un caso en <span className="text-pulso">Inscribir caso</span> y usa “Agendar para comité”.
           </p>
         </div>
       ) : (
